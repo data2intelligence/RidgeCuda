@@ -1,0 +1,11 @@
+*.o
+*.so
+*.dll
+*.dylib
+.Rhistory
+.Rproj.user/
+.DS_Store
+._*
+src/Makevars
+src/*.o
+src/*.so

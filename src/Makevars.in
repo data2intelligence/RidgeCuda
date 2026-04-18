@@ -1,0 +1,53 @@
+# Makevars.in template for RidgeRegCuda package
+# Processed by the configure script
+
+# R_INCLUDE_DIR Defined in configure now
+
+# CUDA Installation Paths (Set by configure)
+CUDA_HOME = @CUDA_HOME@
+NVCC = $(CUDA_HOME)/bin/nvcc
+
+# CUDA Compiler Flags (Set by configure)
+PKG_CPPFLAGS = @CUDA_CPPFLAGS@
+CUDA_ARCH_FLAGS = @CUDA_ARCH_FLAGS@
+
+# CUDA Linker Flags (Set by configure)
+PKG_LIBS = @CUDA_LIBS@
+
+# R Compiler Flags (Provided by R's environment)
+CXX_STD = CXX11
+PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
+# CPICFLAGS usually contains -fPIC
+
+# NVCC specific flags
+# Note: -Xcompiler "$(CPICFLAGS)" passes -fPIC to host compiler for CUDA code
+# Add warning suppression for THRUST_IGNORE_DEPRECATED_CPP_DIALECT
+NVCC_FLAGS = -O3 $(CUDA_ARCH_FLAGS) -Xcompiler "$(CPICFLAGS)" --compiler-options '-fno-strict-aliasing' -std=c++11 --expt-relaxed-constexpr -DTHRUST_IGNORE_DEPRECATED_CPP_DIALECT -DCUB_IGNORE_DEPRECATED_CPP_DIALECT -diag-suppress 177
+
+# List of object files to be compiled
+CPP_OBJECTS = ridge_r_interface.o
+CUDA_OBJECTS = ridge_cuda.o
+OBJECTS = $(CPP_OBJECTS) $(CUDA_OBJECTS)
+
+# Explicit Shared Library Target
+$(SHLIB): $(OBJECTS)
+	$(SHLIB_LINK) $(SHLIB_OPENMP_CXXFLAGS) $(LDFLAGS) $(OBJECTS) $(PKG_LIBS) $(LIBS) -o $@
+
+# --- Compilation Rules ---
+
+# CUDA Compilation Rule
+ridge_cuda.o: ridge_cuda.cu ridge_cuda.h
+	$(NVCC) $(NVCC_FLAGS) $(PKG_CPPFLAGS) -c $< -o $@
+
+# Explicit C++ Compilation Rule (ADDED $(CPICFLAGS))
+ridge_r_interface.o: ridge_r_interface.cpp ridge_cuda.h
+	$(CXX) $(CPICFLAGS) $(PKG_CXXFLAGS) $(CPPFLAGS) $(PKG_CPPFLAGS) -I"@R_INCLUDE_DIR@" -c $< -o $@
+
+# --- End Compilation Rules ---
+
+# Clean Rule
+clean:
+	rm -f $(OBJECTS) $(SHLIB)
+
+# Phony target for clean
+.PHONY: clean all

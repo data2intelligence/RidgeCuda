@@ -1,0 +1,178 @@
+#!/bin/bash
+# Configure script for RidgeRegCuda package
+
+# Function to print error message and exit
+error_exit() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
+
+# Function to print status messages
+msg() {
+    echo "-- $1"
+}
+
+# --- Find R Include Directory --- 
+msg "Detecting R include directory..."
+
+# Determine the R executable path to use
+R_EXEC="R" # Default assumption
+R_SCRIPT_EXEC="Rscript" # Default Rscript command
+if [ -n "$R_HOME" ] && [ -x "$R_HOME/bin/R" ]; then
+    R_EXEC="$R_HOME/bin/R"
+    # Assume Rscript is in the same directory
+    if [ -x "$R_HOME/bin/Rscript" ]; then
+        R_SCRIPT_EXEC="$R_HOME/bin/Rscript"
+    else
+        msg "Warning: Rscript not found in R_HOME/bin, using 'Rscript' from PATH."
+    fi
+    msg "Using R executable from R_HOME: $R_EXEC"
+    msg "Using Rscript executable: $R_SCRIPT_EXEC"
+else
+    msg "R_HOME environment variable not found or invalid, using 'R'/'Rscript' from PATH."
+    if ! command -v R &> /dev/null || ! command -v Rscript &> /dev/null; then
+         error_exit "'R' or 'Rscript' command not found in PATH and R_HOME is not set/valid. Cannot proceed."
+    fi
+fi
+
+# Use Rscript to get the include directory
+# Redirect stderr to /dev/null in case of warnings
+R_INCLUDE_DIR=$($R_SCRIPT_EXEC -e 'cat(R.home("include"))' 2>/dev/null)
+
+# Check if the command failed or returned empty/error
+if [ -z "$R_INCLUDE_DIR" ] || [[ "$R_INCLUDE_DIR" == *"error"* ]] || [[ "$R_INCLUDE_DIR" == *"Error"* ]] ; then
+    error_exit "Failed to determine R include directory using '$R_SCRIPT_EXEC -e R.home(\"include\")'. Check R installation. Output was: '$R_INCLUDE_DIR'"
+fi
+
+# Optional but recommended: Check if the directory exists and contains a key header
+if [ ! -d "$R_INCLUDE_DIR" ] || [ ! -f "$R_INCLUDE_DIR/R.h" ]; then
+     error_exit "Detected R include directory '$R_INCLUDE_DIR' seems invalid or doesn't contain R.h. Check R installation."
+fi
+msg "Using R include directory: $R_INCLUDE_DIR"
+
+
+# --- Find CUDA Installation ---
+if [ -z "$CUDA_HOME" ]; then
+    msg "CUDA_HOME not set, attempting auto-detection..."
+    cuda_path=""
+    for dir in /usr/local/cuda /usr/local/cuda-* /opt/cuda /opt/cuda-*; do # Add common paths
+        if [ -d "$dir" ] && [ -f "$dir/include/cuda_runtime.h" ]; then
+            cuda_path="$dir"; msg "Found CUDA toolkit at: $cuda_path"; break
+        fi
+    done
+    if [ -z "$cuda_path" ]; then
+        nvcc_path=$(which nvcc 2>/dev/null)
+        if [ -n "$nvcc_path" ]; then
+            cuda_path=$(dirname "$(dirname "$nvcc_path")")
+            if [ -d "$cuda_path" ] && [ -f "$cuda_path/include/cuda_runtime.h" ]; then
+                msg "Found CUDA toolkit via nvcc at: $cuda_path"
+            else cuda_path=""; fi
+        fi
+    fi
+    if [ -z "$cuda_path" ]; then error_exit "CUDA toolkit not found. Set CUDA_HOME."; fi
+    export CUDA_HOME="$cuda_path"
+else
+    msg "Using CUDA_HOME from environment: $CUDA_HOME"
+    if [ ! -d "$CUDA_HOME" ] || [ ! -f "$CUDA_HOME/include/cuda_runtime.h" ]; then
+        error_exit "CUDA_HOME '$CUDA_HOME' is invalid."
+    fi
+fi
+
+# --- Check Minimum CUDA Version ---
+min_major=10; min_minor=0; cuda_major=""; cuda_minor=""
+if [ -x "$CUDA_HOME/bin/nvcc" ]; then
+    nvcc_version_str=$("$CUDA_HOME/bin/nvcc" --version | grep "release" | sed 's/.*release \([0-9]*\)\.\([0-9]*\).*/\1.\2/')
+    if [[ $nvcc_version_str =~ ([0-9]+)\.([0-9]+) ]]; then
+        cuda_major=${BASH_REMATCH[1]}; cuda_minor=${BASH_REMATCH[2]}
+        msg "Detected CUDA version via nvcc: $cuda_major.$cuda_minor"
+    fi
+elif [ -f "$CUDA_HOME/include/cuda.h" ]; then
+     CUDA_VERSION_H="$CUDA_HOME/include/cuda.h"
+     cuda_version_val=$(grep "#define CUDA_VERSION" "$CUDA_VERSION_H" | sed -n 's/.*[[:space:]]\([0-9]\+\).*/\1/p' | head -n 1)
+     if [ -n "$cuda_version_val" ]; then
+        cuda_major=$((cuda_version_val / 1000)); cuda_minor=$(((cuda_version_val % 1000) / 10))
+        msg "Detected CUDA version via cuda.h: $cuda_major.$cuda_minor (Value: $cuda_version_val)"
+     fi
+fi
+if [ -z "$cuda_major" ]; then msg "Warning: Could not reliably detect CUDA version.";
+else
+    if [ "$cuda_major" -lt "$min_major" ] || { [ "$cuda_major" -eq "$min_major" ] && [ "$cuda_minor" -lt "$min_minor" ]; }; then
+        error_exit "CUDA version $cuda_major.$cuda_minor is too old. Minimum required: $min_major.$min_minor"
+    fi
+fi
+
+
+# --- Determine GPU Architectures ---
+if [ -n "$CUDA_ARCH" ]; then
+    msg "Using CUDA architectures from environment variable CUDA_ARCH: $CUDA_ARCH"
+    arch_flags="$CUDA_ARCH"
+else
+    msg "CUDA_ARCH not set in environment, using default architectures."
+    default_arch_flags="-gencode arch=compute_60,code=sm_60 \
+                        -gencode arch=compute_70,code=sm_70 \
+                        -gencode arch=compute_75,code=sm_75 \
+                        -gencode arch=compute_80,code=sm_80 \
+                        -gencode arch=compute_86,code=sm_86 \
+                        -gencode arch=compute_90,code=sm_90 \
+                        -gencode arch=compute_90,code=compute_90"
+    arch_flags="$default_arch_flags"
+    msg "Using default CUDA architectures: $arch_flags"
+fi
+
+
+# --- Check CUDA Libraries ---
+if [ -d "$CUDA_HOME/lib64" ]; then cuda_lib_dir="$CUDA_HOME/lib64"; else cuda_lib_dir="$CUDA_HOME/lib"; fi
+msg "Using CUDA library directory: $cuda_lib_dir"
+REQUIRED_HEADERS="cuda_runtime.h cublas_v2.h cusolver_common.h cusparse.h curand.h"
+REQUIRED_LIBS="libcudart.so libcublas.so libcusolver.so libcusparse.so libcurand.so"
+for header in $REQUIRED_HEADERS; do if [ ! -f "$CUDA_HOME/include/$header" ]; then error_exit "Required CUDA header not found: $CUDA_HOME/include/$header"; fi; done
+for lib in $REQUIRED_LIBS; do if [ ! -f "$cuda_lib_dir/$lib" ] && [ ! -f "$cuda_lib_dir/${lib%.so}.dylib" ]; then error_exit "Required CUDA library not found in $cuda_lib_dir: $lib (or .dylib)"; fi; done
+
+
+# --- Create src/Makevars ---
+msg "Creating src/Makevars from src/Makevars.in"
+
+# Define Makevars substitutions
+cuda_cppflags="-I${CUDA_HOME}/include"
+cuda_libs="-L${cuda_lib_dir} -lcudart -lcublas -lcusolver -lcusparse -lcurand"
+
+# Check template file before sed
+if [ ! -f "src/Makevars.in" ]; then
+    error_exit "Template file src/Makevars.in not found!"
+elif [ ! -r "src/Makevars.in" ]; then
+    # Attempt to fix readability if possible (may not work depending on system)
+    chmod u+r src/Makevars.in &> /dev/null
+    if [ ! -r "src/Makevars.in" ]; then
+        error_exit "Cannot read template file src/Makevars.in - check file permissions."
+    else
+         msg "Corrected read permissions for src/Makevars.in"
+    fi
+fi
+msg "Template src/Makevars.in found and is readable."
+
+
+# Use sed to substitute placeholders in Makevars.in
+# Using the exact same sed command as before, assuming variables are now confirmed okay
+# Ensure no unexpected empty lines before this command in the script
+sed -e "s|@CUDA_CPPFLAGS@|${cuda_cppflags}|g" \
+    -e "s|@CUDA_LIBS@|${cuda_libs}|g" \
+    -e "s|@CUDA_HOME@|${CUDA_HOME}|g" \
+    -e "s|@CUDA_ARCH_FLAGS@|${arch_flags}|g" \
+    -e "s|@R_INCLUDE_DIR@|${R_INCLUDE_DIR}|g" \
+    src/Makevars.in > src/Makevars
+
+# Check if Makevars was created AND is not empty
+# Check exit status of sed ($?)
+sed_exit_status=$?
+if [ $sed_exit_status -ne 0 ]; then
+    error_exit "sed command failed with exit status $sed_exit_status while trying to create src/Makevars."
+fi
+if [ ! -f "src/Makevars" ]; then
+    error_exit "Failed to create src/Makevars (sed command likely failed despite exit status 0)."
+elif [ ! -s "src/Makevars" ]; then
+    # Check if Makevars exists but is empty
+    error_exit "Created src/Makevars is empty (sed command likely failed)."
+fi
+
+msg "Configuration completed successfully."
+exit 0

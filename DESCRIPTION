@@ -1,0 +1,38 @@
+Package: RidgeRegCuda
+Type: Package
+Title: CUDA-Accelerated Ridge Regression with Scaling and Permutation Testing
+Version: 0.2.0
+Date: 2026-04-18
+Authors@R: c(
+    person("Seongyong Park", role = c("aut", "cre"), email = "seongyong.park@nih.gov",
+           comment = c(ORCID = "0000-0003-4533-3071"))
+  )
+Maintainer: Seongyong Park <seongyong.park@nih.gov> 
+Description: Provides high-performance ridge regression computations using
+    NVIDIA CUDA for GPU acceleration. Supports dense input matrices (X) and
+    either dense or sparse matrices (dgCMatrix format via the 'Matrix'
+    package) for the response variable (Y). Includes GPU-accelerated
+    functions for standard (dense) and sparse-aware column scaling. Offers
+    permutation testing for assessing coefficient significance (t-test
+    functionality has been removed). Leverages NVIDIA libraries (cuBLAS,
+    cuSOLVER, cuSPARSE, cuRAND) for optimal performance on compatible GPUs.
+    Includes utility functions for CUDA device management and GPU memory
+    estimation.
+License: GPL (>= 2)
+Imports:
+    methods,
+    Matrix
+Suggests:
+    testthat (>= 3.0.0),
+    reticulate,
+    ggplot2,
+    microbenchmark
+URL: https://github.com/psychemistz/RidgeRegCuda
+BugReports: https://github.com/psychemistz/RidgeRegCuda/issues
+Encoding: UTF-8
+SystemRequirements: NVIDIA CUDA Toolkit (>= 11.0 recommended, check library compatibility),
+    NVIDIA GPU Driver,
+    Supported NVIDIA GPU (Compute Capability >= 6.0 recommended for double precision)
+NeedsCompilation: yes
+RoxygenNote: 7.3.2
+

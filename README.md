@@ -124,11 +124,26 @@ cleanup_cuda()
 
 ## Reproducibility
 
-- `rng_method = "mt19937"` (default) with `ncores = 1` → bit-identical
-  to `RidgeFast::ridge()` in its canonical mode. Batched output is
-  bit-identical to single-call output. Parity is verified by
+Determinism has two axes: **within a machine** (same binary + same
+input → same output) and **across machines / backends** (same input
+produces the same output on CPU or on a different GPU / OS).
+
+- `rng_method = "mt19937"` (default). The host builds a GSL MT19937
+  (seed 0) permutation table and uploads it to the GPU; the kernel
+  consumes these permutations deterministically. Bit-identical to
+  `RidgeFast::ridge()` and SecAct's pure-R backend in their canonical
+  modes. Parity is verified by
   [`tests/test_gpu_batch.sbatch`](tests/test_gpu_batch.sbatch).
-- `rng_method = "srand"` → faster setup but not reproducible.
+- `rng_method = "srand"`. The kernel runs an in-process Fisher-Yates
+  using C standard library `rand()`. Deterministic on a given machine,
+  but the permutation sequence depends on the host C runtime, so
+  output will *not* match across different OS / compiler combinations,
+  and will *not* match the MT19937-based backends.
+- GPU floating-point accumulation order may differ by one ULP from the
+  CPU path depending on kernel block size; β / se / zscore agree to a
+  few ULPs, p-values agree exactly.
+- `ridge_batch()` is bit-identical to `ridge()` at the same
+  `rng_method` (independent of `batch_size`).
 
 ## API
 

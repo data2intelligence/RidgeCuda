@@ -150,16 +150,6 @@ Identical to `RidgeFast` except for the `device_id` argument.
 - **Compute capability too low**: this package requires CC ≥ 6.0 for
   double precision. Older GPUs (Maxwell, Kepler) are not supported.
 
-## Citation
-
-```
-@misc{RidgeCuda,
-  author = {Seongyong Park},
-  title = {RidgeCuda: CUDA-Accelerated Ridge Regression for R},
-  url = {https://github.com/psychemistz/RidgeCuda}
-}
-```
-
 ## License
 
 GPL (>= 2)

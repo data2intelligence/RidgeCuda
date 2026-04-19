@@ -36,7 +36,7 @@
 #' print(paste("Sparse (10 cols/batch): Requires approx:", round(mem_sparse_batch$required_bytes / 1024^2), "MB"))
 #' }
 #' @export
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 estimate_cuda_memory <- function(n_genes, n_features, n_samples, n_rand = 1000,
                                nnz = NULL, is_sparse = FALSE, batch_size = 0, device_id = 0) {
 
@@ -85,7 +85,7 @@ estimate_cuda_memory <- function(n_genes, n_features, n_samples, n_rand = 1000,
   result <- .Call("ridge_cuda_memory_requirements_r",
                  as.integer(n_genes), as.integer(n_features), as.integer(n_samples),
                  nnz_val, as.integer(is_sparse), as.integer(n_rand), as.integer(batch_size),
-                 PACKAGE = "RidgeRegCuda")
+                 PACKAGE = "RidgeCuda")
 
   # Convert output bytes to numeric for easier use in R
   result$required_bytes <- as.numeric(result$required_bytes)

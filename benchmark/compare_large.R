@@ -1,13 +1,13 @@
 #!/usr/bin/env Rscript
 
-# Example of ridge regression using the RidgeRegCuda R package on a larger dataset,
+# Example of ridge regression using the RidgeCuda R package on a larger dataset,
 # applying column-wise scaling (sparse-aware for Y, dense for X), comparing
 # ONLY the beta matrix using Pearson correlation, saving the computed beta,
 # and managing memory with batch processing.
 
 # --- Load Required Libraries ---
 suppressPackageStartupMessages({
-  library(RidgeRegCuda)
+  library(RidgeCuda)
   library(data.table)
   library(stats)
   library(utils)
@@ -189,7 +189,7 @@ estimate_optimal_batch_size <- function(n_genes, n_features, n_samples, n_rand, 
 
 # Initialize CUDA
 log_info("Initializing CUDA...")
-init_result <- RidgeRegCuda::check_cuda_available(CUDA_DEVICE_ID)
+init_result <- RidgeCuda::check_cuda_available(CUDA_DEVICE_ID)
 if (!init_result$status == 0) { # Check status code
     log_error("CUDA initialization failed: ", init_result$message)
 }
@@ -335,7 +335,7 @@ log_info("Preprocessing: Performing COLUMN-WISE scaling using CUDA...")
 log_info("  Scaling X (dense) using CUDA...")
 scale_result_X <- NULL
 tryCatch({
-    scale_result_X <- RidgeRegCuda::scale_dense_matrix_cuda(X_mat_unscaled, CUDA_DEVICE_ID)
+    scale_result_X <- RidgeCuda::scale_dense_matrix_cuda(X_mat_unscaled, CUDA_DEVICE_ID)
 }, error = function(e) {
     log_error("CUDA scaling of dense matrix X failed: ", e$message)
 })
@@ -361,7 +361,7 @@ rm(Y_mat_unscaled); gc()
 
 scale_result_Y <- NULL
 tryCatch({
-    scale_result_Y <- RidgeRegCuda::scale_sparse_matrix_csc_cuda(Y_sparse_unscaled, CUDA_DEVICE_ID)
+    scale_result_Y <- RidgeCuda::scale_sparse_matrix_csc_cuda(Y_sparse_unscaled, CUDA_DEVICE_ID)
 }, error = function(e) {
     log_error("CUDA scaling of sparse matrix Y failed: ", e$message)
 })
@@ -430,7 +430,7 @@ if (AUTO_BATCH_SIZE) {
 }
 
 # --- Run Ridge Regression with Batch Processing ---
-log_info(sprintf("\n--- Running Permutation Test with Batch Processing (RidgeRegCuda pkg, nrand=%d, lambda=%.1f, batch_size=%d) ---", 
+log_info(sprintf("\n--- Running Permutation Test with Batch Processing (RidgeCuda pkg, nrand=%d, lambda=%.1f, batch_size=%d) ---", 
                 N_RAND_PERM, LAMBDA_VAL, batch_size))
 results_perm_pkg <- NULL
 start_time_pkg_perm <- Sys.time()
@@ -442,7 +442,7 @@ tryCatch({
   }
 
   # Use batch processing in ridge_cuda call
-  results_perm_pkg <- RidgeRegCuda::ridge_cuda(
+  results_perm_pkg <- RidgeCuda::ridge_cuda(
     X = X_final, 
     Y = Y_final, 
     lambda = LAMBDA_VAL,
@@ -661,30 +661,30 @@ log_info("\n--- T-test (nrand=0) SKIPPED ---")
 cat_print("\n--- Final Summary of Beta Correlation Check ---")
 if (!comparison_performed) {
     if (exists("duration_pkg_perm") && !is.null(results_perm_pkg) && results_perm_pkg$status == 0) { # Check if run succeeded but comparison failed
-        log_warning("\nPackage RidgeRegCuda run completed and saved beta, but comparison was skipped (check logs).")
+        log_warning("\nPackage RidgeCuda run completed and saved beta, but comparison was skipped (check logs).")
         quit(save = "no", status = 1) # Treat comparison failure as script failure
     } else if (exists("duration_pkg_perm")) { # Check if run failed before comparison
-         log_warning("\nPackage RidgeRegCuda run completed but failed (status != 0) or saving failed. Comparison skipped.")
+         log_warning("\nPackage RidgeCuda run completed but failed (status != 0) or saving failed. Comparison skipped.")
          quit(save = "no", status = 1)
     } else { # Run didn't even complete
-        log_error("\nPackage RidgeRegCuda run did not complete successfully or produce valid results.")
+        log_error("\nPackage RidgeCuda run did not complete successfully or produce valid results.")
         quit(save = "no", status = 1)
     }
 } else if (beta_check_passed) {
   log_info("Beta matrix correlation check passed minimum threshold.")
   log_info("Note: Sparse Y scaling was used with batch processing.")
-  log_info("\nPackage RidgeRegCuda implementation example finished successfully.")
+  log_info("\nPackage RidgeCuda implementation example finished successfully.")
   quit(save = "no", status = 0)
 } else {
   log_warning("\nBeta matrix correlation check FAILED or was skipped due to mismatches (check logs above).")
   log_warning("Note: Sparse Y scaling was used with batch processing.")
-  log_warning("\nPackage RidgeRegCuda implementation example finished with Beta correlation check failure or mismatch.")
+  log_warning("\nPackage RidgeCuda implementation example finished with Beta correlation check failure or mismatch.")
   quit(save = "no", status = 1)
 }
 
 # Clean up CUDA resources
 tryCatch({
-  RidgeRegCuda::cleanup_cuda()
+  RidgeCuda::cleanup_cuda()
   log_info("CUDA resources cleaned up.")
 }, error = function(e) {
   log_warning("Failed to clean up CUDA resources: ", e$message)

@@ -1,4 +1,4 @@
-# Makevars.in template for RidgeRegCuda package
+# Makevars.in template for RidgeCuda package
 # Processed by the configure script
 
 # R_INCLUDE_DIR Defined in configure now

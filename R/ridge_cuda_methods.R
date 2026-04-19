@@ -7,7 +7,7 @@
 #' @export
 #' @keywords internal
 print.ridge_cuda <- function(x, ...) {
-  cat("Ridge Regression Results (RidgeRegCuda - Permutation Test)\n") # Updated title
+  cat("Ridge Regression Results (RidgeCuda - Permutation Test)\n") # Updated title
   cat("--------------------------------------------------------\n")
 
   if (!is.null(x$call)) { cat("Call: "); print(x$call) }
@@ -97,7 +97,7 @@ summary.ridge_cuda <- function(object, ...) {
 #' @export
 #' @keywords internal
 print.summary.ridge_cuda <- function(x, ...) {
-  cat("Summary: Ridge Regression Results (RidgeRegCuda - Permutation Test)\n") # Updated title
+  cat("Summary: Ridge Regression Results (RidgeCuda - Permutation Test)\n") # Updated title
   cat("==================================================================\n")
 
   if (!is.null(x$call)) { cat("Call:\n"); print(x$call); cat("\n") }

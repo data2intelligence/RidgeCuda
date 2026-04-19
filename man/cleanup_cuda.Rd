@@ -10,7 +10,7 @@ cleanup_cuda()
 Invisibly returns `TRUE`.
 }
 \description{
-Releases CUDA resources associated with the RidgeRegCuda package. It's good
+Releases CUDA resources associated with the RidgeCuda package. It's good
 practice to call this when you are finished with GPU computations, although
 resources are typically released when the R session ends. Also called automatically
 by `.onUnload`.

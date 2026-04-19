@@ -1,14 +1,14 @@
 #' GPU-accelerated ridge regression with permutation testing
 #'
 #' Adapter matching the shared accelerator API used by
-#' \code{RidgeRegFast::Ridge.Reg.Fast}. Dispatches to the CUDA kernel
+#' \code{RidgeFast::ridge}. Dispatches to the CUDA kernel
 #' via \code{\link{ridge_cuda}} (or the \code{_with_perm_r} entry point
 #' for canonical MT19937 mode).
 #'
 #' @section Reproducibility:
 #' With \code{rng_method = "mt19937"}, an MT19937 (seed 0) permutation
 #' table is generated on the host and uploaded to the GPU. This gives
-#' the same permutation sequence as \code{RidgeRegFast} and SecAct's
+#' the same permutation sequence as \code{RidgeFast} and SecAct's
 #' pure-R backend, so output is bit-identical up to floating-point
 #' accumulation order. With \code{rng_method = "srand"} the kernel
 #' uses an in-process Fisher-Yates with C stdlib rand() — faster, but
@@ -24,11 +24,11 @@
 #' @return A list with four p-by-m matrices: \code{beta}, \code{se},
 #'   \code{zscore}, \code{pvalue}.
 #' @seealso \code{\link{ridge_cuda}}
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 #' @export
-Ridge.Reg.Fast <- function(X, Y, lambda = 5e+05, nrand = 1000L,
-                           ncores = 1L, rng_method = "mt19937",
-                           device_id = 0L) {
+ridge <- function(X, Y, lambda = 5e+05, nrand = 1000L,
+                  ncores = 1L, rng_method = "mt19937",
+                  device_id = 0L) {
   if (!is.matrix(X)) X <- as.matrix(X)
   if (!is.matrix(Y) && !inherits(Y, "Matrix")) Y <- as.matrix(Y)
   if (!is.numeric(X)) stop("X must be numeric.")
@@ -58,7 +58,7 @@ Ridge.Reg.Fast <- function(X, Y, lambda = 5e+05, nrand = 1000L,
     if (!cuda_status$available) {
       stop("CUDA initialization failed: ", cuda_status$message)
     }
-    # CUDA's permuteColumnsKernel reads T[:, indices[j]]; RidgeRegFast's
+    # CUDA's permuteColumnsKernel reads T[:, indices[j]]; RidgeFast's
     # Tcol kernel reads T[:, inv[j]]. Invert so both produce the same
     # permuted T, which is mathematically a row-permutation of Y.
     n <- nrow(X)
@@ -72,7 +72,7 @@ Ridge.Reg.Fast <- function(X, Y, lambda = 5e+05, nrand = 1000L,
     res <- .Call("ridge_cuda_dense_with_perm_r",
                  X, Y, as.double(lambda), as.integer(nrand),
                  0L, as.integer(device_id), inv_table,
-                 PACKAGE = "RidgeRegCuda")
+                 PACKAGE = "RidgeCuda")
   } else {
     res <- ridge_cuda(X = X, Y = Y,
                       lambda = lambda,

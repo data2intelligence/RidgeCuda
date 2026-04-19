@@ -1007,7 +1007,7 @@ static const R_CallMethodDef CallEntries[] = {
 
 // Initialization function called when the package is loaded by R
 extern "C" {
-    void R_init_RidgeRegCuda(DllInfo *dll) {
+    void R_init_RidgeCuda(DllInfo *dll) {
         // Register the C/C++ routines defined in CallEntries
         R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
         // Ensure R finds symbols dynamically but doesn't require all to be present (?)

@@ -25,7 +25,7 @@ default behavior. Default is 0.}
 Invisibly returns the previous pool state (TRUE or FALSE).
 }
 \description{
-Configures CUDA memory pooling behavior for the RidgeRegCuda package.
+Configures CUDA memory pooling behavior for the RidgeCuda package.
 Memory pooling can improve performance for repeated calculations by
 reducing memory fragmentation and system allocation overhead.
 }

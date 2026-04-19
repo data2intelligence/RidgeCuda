@@ -24,7 +24,7 @@
 #' }
 #' }
 #' @export
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 get_cuda_devices <- function(max_devices = NULL) {
    # Issue deprecation warning if max_devices is used
    if (!is.null(max_devices)) {
@@ -32,7 +32,7 @@ get_cuda_devices <- function(max_devices = NULL) {
    }
 
   # Call the C++ interface function registered as "get_cuda_devices_r"
-  devices <- .Call("get_cuda_devices_r", as.integer(1), PACKAGE = "RidgeRegCuda") # Pass dummy integer
+  devices <- .Call("get_cuda_devices_r", as.integer(1), PACKAGE = "RidgeCuda") # Pass dummy integer
 
   # Post-process the result
   if (is.data.frame(devices) && nrow(devices) > 0 && "memory_mb" %in% names(devices)) {

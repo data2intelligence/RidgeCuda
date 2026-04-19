@@ -1,4 +1,4 @@
-Package: RidgeRegCuda
+Package: RidgeCuda
 Type: Package
 Title: CUDA-Accelerated Ridge Regression with Scaling and Permutation Testing
 Version: 0.2.0
@@ -27,8 +27,8 @@ Suggests:
     reticulate,
     ggplot2,
     microbenchmark
-URL: https://github.com/psychemistz/RidgeRegCuda
-BugReports: https://github.com/psychemistz/RidgeRegCuda/issues
+URL: https://github.com/psychemistz/RidgeCuda
+BugReports: https://github.com/psychemistz/RidgeCuda/issues
 Encoding: UTF-8
 SystemRequirements: NVIDIA CUDA Toolkit (>= 11.0 recommended, check library compatibility),
     NVIDIA GPU Driver,

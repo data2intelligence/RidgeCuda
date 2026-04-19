@@ -7,15 +7,15 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=test_gpu_parity.%j.log
 
-# GPU parity test: verify RidgeRegCuda with rng_method="mt19937"
-# produces output bit-identical (up to FP epsilon) to RidgeRegFast
+# GPU parity test: verify RidgeCuda with rng_method="mt19937"
+# produces output bit-identical (up to FP epsilon) to RidgeFast
 # and SecAct pure-R.
 
 set -euo pipefail
 
 module load CUDA/12.1 gcc/11.3.0 GSL/2.7_gcc-11.3.0 R/4.3.2
 
-cd /vf/users/parks34/projects/1ridgesig/RidgeRegCuda
+cd /vf/users/parks34/projects/1ridgesig/RidgeCuda
 
 # Build from source on GPU node (needs nvcc)
 R CMD INSTALL .
@@ -23,8 +23,8 @@ R CMD INSTALL .
 cd /vf/users/parks34/projects/1ridgesig
 
 R --no-save <<'EOF'
-library(RidgeRegFast)
-library(RidgeRegCuda)
+library(RidgeFast)
+library(RidgeCuda)
 
 set.seed(17)
 n <- 200; p <- 20; m <- 8
@@ -35,13 +35,13 @@ X <- scale(X); Y <- scale(Y)
 
 lambda <- 100; nrand <- 200
 
-cat("\n--- RidgeRegFast (CPU, mt19937, ncores=1) ---\n")
-r_fast <- RidgeRegFast::Ridge.Reg.Fast(X, Y, lambda, nrand, ncores = 1L,
-                                       rng_method = "mt19937")
+cat("\n--- RidgeFast (CPU, mt19937, ncores=1) ---\n")
+r_fast <- RidgeFast::ridge(X, Y, lambda, nrand, ncores = 1L,
+                           rng_method = "mt19937")
 
-cat("\n--- RidgeRegCuda (GPU, mt19937) ---\n")
-r_gpu  <- RidgeRegCuda::Ridge.Reg.Fast(X, Y, lambda, nrand, ncores = 1L,
-                                       rng_method = "mt19937")
+cat("\n--- RidgeCuda (GPU, mt19937) ---\n")
+r_gpu  <- RidgeCuda::ridge(X, Y, lambda, nrand, ncores = 1L,
+                           rng_method = "mt19937")
 
 cat("\n=== PARITY (CPU-fast vs GPU, both mt19937) ===\n")
 for (nm in c("beta", "se", "zscore", "pvalue")) {

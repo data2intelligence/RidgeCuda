@@ -1,5 +1,5 @@
 #!/bin/bash
-# Configure script for RidgeRegCuda package
+# Configure script for RidgeCuda package
 
 # Function to print error message and exit
 error_exit() {

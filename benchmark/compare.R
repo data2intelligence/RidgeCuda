@@ -1,13 +1,13 @@
 #!/usr/bin/env Rscript
 
-# Example of ridge regression using the RidgeRegCuda R package with batch processing,
+# Example of ridge regression using the RidgeCuda R package with batch processing,
 # applying column-wise scaling preprocessing based on data_significance test case,
 # and comparing results using Pearson correlation against precomputed numpy files.
 
 # --- Load Required Libraries ---
 # Suppress startup messages for cleaner output
 suppressPackageStartupMessages({
-  library(RidgeRegCuda) # Your newly built package
+  library(RidgeCuda) # Your newly built package
   library(reticulate) # For loading numpy arrays
   library(stats) # For cor()
   library(utils) # For read.table()
@@ -37,7 +37,7 @@ output_prefix <- file.path(precomputed_dir, "output") # Path prefix for npy file
 LAMBDA_VAL <- 10000
 N_RAND_PERM <- 1000
 # N_RAND_TTEST <- 0 # T-test removed
-# ALTERNATIVE <- "two-sided" # Not used by RidgeRegCuda C interface directly
+# ALTERNATIVE <- "two-sided" # Not used by RidgeCuda C interface directly
 
 # CUDA Device ID (change if needed)
 CUDA_DEVICE_ID <- 0L
@@ -222,14 +222,14 @@ calculate_and_report_correlation <- function(mat1, mat2, name1 = "Mat1", name2 =
 calculate_batch_size <- function(n_genes, n_features, n_samples, n_rand, device_id) {
   # Get available GPU memory
   mem_info <- tryCatch({
-    RidgeRegCuda::get_cuda_memory_info()
+    RidgeCuda::get_cuda_memory_info()
   }, error = function(e) {
     log_warning("Could not get GPU memory info: ", e$message)
     return(NULL)
   })
   
   if (is.null(mem_info)) {
-    log_warning("Using automatic batch sizing (handled by RidgeRegCuda)")
+    log_warning("Using automatic batch sizing (handled by RidgeCuda)")
     return(0) # Let the package handle it automatically
   }
   
@@ -243,7 +243,7 @@ calculate_batch_size <- function(n_genes, n_features, n_samples, n_rand, device_
   
   for (batch in candidates) {
     mem_req <- tryCatch({
-      RidgeRegCuda::estimate_cuda_memory(
+      RidgeCuda::estimate_cuda_memory(
         n_genes = n_genes,
         n_features = n_features,
         n_samples = n_samples,
@@ -275,7 +275,7 @@ calculate_batch_size <- function(n_genes, n_features, n_samples, n_rand, device_
 # Initialize CUDA (check availability)
 log_info("Initializing CUDA...")
 # Use the exported function from the package
-init_result <- RidgeRegCuda::check_cuda_available(CUDA_DEVICE_ID)
+init_result <- RidgeCuda::check_cuda_available(CUDA_DEVICE_ID)
 if (!init_result$available) { # Check the 'available' flag added in the wrapper
   log_error("CUDA initialization failed: ", init_result$message)
 }
@@ -284,7 +284,7 @@ log_info("CUDA initialized successfully.")
 # --- Configure Memory Management (Optional) ---
 # Enable memory pooling with 1GB allocation size and 512MB release threshold
 tryCatch({
-  RidgeRegCuda::set_cuda_memory_options(TRUE, 1024, 512)
+  RidgeCuda::set_cuda_memory_options(TRUE, 1024, 512)
   log_info("CUDA memory pooling enabled")
 }, error = function(e) {
   log_warning("Memory pooling configuration skipped: ", e$message)
@@ -311,8 +311,8 @@ log_info("Preprocessing: Performing COLUMN-WISE scaling on Y and X...")
 if (USE_CUDA_SCALING) {
   # Use CUDA-accelerated scaling functions
   log_info("Using CUDA-accelerated scaling...")
-  X_scaled_result <- RidgeRegCuda::scale_dense_matrix_cuda(as.matrix(X_df), CUDA_DEVICE_ID)
-  Y_scaled_result <- RidgeRegCuda::scale_dense_matrix_cuda(as.matrix(Y_df), CUDA_DEVICE_ID)
+  X_scaled_result <- RidgeCuda::scale_dense_matrix_cuda(as.matrix(X_df), CUDA_DEVICE_ID)
+  Y_scaled_result <- RidgeCuda::scale_dense_matrix_cuda(as.matrix(Y_df), CUDA_DEVICE_ID)
   
   # Extract scaled matrices
   X_mat_scaled <- X_scaled_result$scaled_matrix
@@ -356,15 +356,15 @@ if (BATCH_SIZE <= 0) {
   )
 }
 
-# --- Test A: Permutation Test using RidgeRegCuda package with batch processing ---
-log_info(sprintf("\n--- Running Permutation Test (using RidgeRegCuda pkg, nrand=%d, lambda=%.1f, batch_size=%d) ---", 
+# --- Test A: Permutation Test using RidgeCuda package with batch processing ---
+log_info(sprintf("\n--- Running Permutation Test (using RidgeCuda pkg, nrand=%d, lambda=%.1f, batch_size=%d) ---", 
                 N_RAND_PERM, LAMBDA_VAL, BATCH_SIZE))
 results_perm_pkg <- NULL
 start_time_pkg_perm <- Sys.time()
 
 tryCatch({
   # --- CALL THE MAIN EXPORTED R FUNCTION WITH BATCH PROCESSING ---
-  results_perm_pkg <- RidgeRegCuda::ridge_cuda(
+  results_perm_pkg <- RidgeCuda::ridge_cuda(
     X = X_final,
     Y = Y_final,
     lambda = LAMBDA_VAL,
@@ -428,28 +428,28 @@ if (!is.null(precomputed_perm) && !is.null(results_perm_pkg)) {
 }
 
 # --- Test B: T-test (SKIPPED) ---
-log_info("\n--- T-test (nrand=0) SKIPPED - Functionality removed from RidgeRegCuda ---")
+log_info("\n--- T-test (nrand=0) SKIPPED - Functionality removed from RidgeCuda ---")
 
 # --- Final Summary ---
-cat_print("\n--- Final Summary of Correlation Checks (using RidgeRegCuda package) ---")
+cat_print("\n--- Final Summary of Correlation Checks (using RidgeCuda package) ---")
 if (perm_checks_overall_passed) {
   log_info("All reported permutation correlation checks passed minimum thresholds.")
   log_info(sprintf("Successfully ran ridge regression with batch processing (batch_size=%d).", BATCH_SIZE))
-  log_info("\nPackage RidgeRegCuda implementation example finished successfully.")
+  log_info("\nPackage RidgeCuda implementation example finished successfully.")
   quit(save = "no", status = 0)
 } else if (is.null(precomputed_perm)) {
-  log_warning("\nPackage RidgeRegCuda implementation example finished, but comparisons were skipped due to missing precomputed files.")
+  log_warning("\nPackage RidgeCuda implementation example finished, but comparisons were skipped due to missing precomputed files.")
   log_warning("Run the Python script with --regenerate-baseline if needed.")
   quit(save = "no", status = 1)
 } else {
   log_warning("\nOne or more permutation correlation checks FAILED to meet the minimum threshold (check logs above).") # Changed from log_error
-  log_warning("\nPackage RidgeRegCuda implementation example finished with correlation check failures.") # Changed from log_error
+  log_warning("\nPackage RidgeCuda implementation example finished with correlation check failures.") # Changed from log_error
   quit(save = "no", status = 1)
 }
 
 # Clean up CUDA resources when done
 tryCatch({
-  RidgeRegCuda::cleanup_cuda()
+  RidgeCuda::cleanup_cuda()
   log_info("CUDA resources cleaned up.")
 }, error = function(e) {
   log_warning("Failed to clean up CUDA resources: ", e$message)

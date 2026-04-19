@@ -10,5 +10,5 @@
   # Try to cleanup, but don't error if it fails (e.g., if context was already lost)
   try(cleanup_cuda(), silent = TRUE)
   # Standard unload procedure
-  library.dynam.unload("RidgeRegCuda", libpath)
+  library.dynam.unload("RidgeCuda", libpath)
 }

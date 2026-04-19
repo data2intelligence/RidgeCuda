@@ -13,13 +13,13 @@
 #' }
 #' }
 #' @export
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 get_cuda_memory_info <- function() {
    # Ensure CUDA is initialized before querying. Check default device 0.
    # User should ideally call check_cuda_available first if using non-default device.
    # Use tryCatch to handle potential errors during the check itself
    init_stat <- tryCatch(
-       .Call("check_cuda_available_r", as.integer(0), PACKAGE = "RidgeRegCuda"),
+       .Call("check_cuda_available_r", as.integer(0), PACKAGE = "RidgeCuda"),
        error = function(e) list(status = -99, message = paste("Error during CUDA check:", e$message))
    )
 
@@ -29,7 +29,7 @@ get_cuda_memory_info <- function() {
    }
 
    # Call C++ function registered as "ridge_cuda_get_memory_info_r"
-   result <- .Call("ridge_cuda_get_memory_info_r", as.integer(0), PACKAGE = "RidgeRegCuda") # Pass dummy device_id
+   result <- .Call("ridge_cuda_get_memory_info_r", as.integer(0), PACKAGE = "RidgeCuda") # Pass dummy device_id
 
    # Convert output memory values to numeric
    result$free_memory <- as.numeric(result$free_memory)

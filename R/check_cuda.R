@@ -22,7 +22,7 @@
 #' }
 #' }
 #' @export
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 check_cuda_available <- function(device_id = 0) {
   # Ensure device_id is a single integer
   if (!is.numeric(device_id) || length(device_id) != 1 || device_id < 0 || floor(device_id) != device_id) {
@@ -31,7 +31,7 @@ check_cuda_available <- function(device_id = 0) {
   device_id <- as.integer(device_id)
 
   # Call the C++ interface function registered as "check_cuda_available_r"
-  result <- .Call("check_cuda_available_r", device_id, PACKAGE = "RidgeRegCuda")
+  result <- .Call("check_cuda_available_r", device_id, PACKAGE = "RidgeCuda")
 
   # Add a simple boolean flag for convenience
   result$available <- (result$status == 0)

@@ -1,6 +1,6 @@
 #' Set CUDA Memory Management Options
 #'
-#' Configures CUDA memory pooling behavior for the RidgeRegCuda package.
+#' Configures CUDA memory pooling behavior for the RidgeCuda package.
 #' Memory pooling can improve performance for repeated calculations by
 #' reducing memory fragmentation and system allocation overhead.
 #'
@@ -28,7 +28,7 @@
 #' }
 #' }
 #' @export
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 set_cuda_memory_options <- function(enable_pool = TRUE, 
                                   allocation_size = 0, 
                                   release_threshold = 0) {
@@ -49,7 +49,7 @@ set_cuda_memory_options <- function(enable_pool = TRUE,
                           as.logical(enable_pool),
                           as.double(allocation_size),
                           as.double(release_threshold),
-                          PACKAGE = "RidgeRegCuda")
+                          PACKAGE = "RidgeCuda")
   }, error = function(e) {
     stop("Failed to set CUDA memory options: ", e$message)
   })
@@ -89,7 +89,7 @@ set_cuda_memory_options <- function(enable_pool = TRUE,
 #' }
 #' }
 #' @export
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 set_cuda_async_mode <- function(enable_async = TRUE) {
   # Check input
   if (!is.logical(enable_async) || length(enable_async) != 1) {
@@ -100,7 +100,7 @@ set_cuda_async_mode <- function(enable_async = TRUE) {
   tryCatch({
     previous_mode <- .Call("ridge_cuda_set_async_mode_r", 
                           as.logical(enable_async),
-                          PACKAGE = "RidgeRegCuda")
+                          PACKAGE = "RidgeCuda")
   }, error = function(e) {
     stop("Failed to set CUDA asynchronous mode: ", e$message)
   })

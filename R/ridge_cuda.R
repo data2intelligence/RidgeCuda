@@ -182,7 +182,7 @@ scale_sparse_matrix_csc_cuda <- function(mat, device_id = 0L) {
 #' @export
 #' @importFrom methods as   
 #' @import Matrix
-#' @useDynLib RidgeRegCuda, .registration = TRUE
+#' @useDynLib RidgeCuda, .registration = TRUE
 ridge_cuda <- function(X, Y, lambda = 1.0, n_rand = 1000, batch_size = 0, device_id = 0) {
 
   # --- Input Validation ---
@@ -292,7 +292,7 @@ ridge_cuda <- function(X, Y, lambda = 1.0, n_rand = 1000, batch_size = 0, device
 
     # Call the sparse C++ function (registered as "ridge_cuda_sparse_r")
     result <- .Call("ridge_cuda_sparse_r", X, Y, lambda_val,
-                   n_rand_val, batch_size_val, device_id_val, PACKAGE = "RidgeRegCuda")
+                   n_rand_val, batch_size_val, device_id_val, PACKAGE = "RidgeCuda")
 
   } else { # Dense path
     if (!is_Y_dense) stop("Internal error: Y is not a dense matrix in the dense path.")
@@ -300,7 +300,7 @@ ridge_cuda <- function(X, Y, lambda = 1.0, n_rand = 1000, batch_size = 0, device
 
     # Call the dense C++ function (registered as "ridge_cuda_dense_r")
     result <- .Call("ridge_cuda_dense_r", X, Y, lambda_val,
-                   n_rand_val, batch_size_val, device_id_val, PACKAGE = "RidgeRegCuda")
+                   n_rand_val, batch_size_val, device_id_val, PACKAGE = "RidgeCuda")
   }
 
   # --- Process Results ---

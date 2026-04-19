@@ -1,6 +1,6 @@
-# RidgeRegCuda: CUDA-Accelerated Ridge Regression for R
+# RidgeCuda: CUDA-Accelerated Ridge Regression for R
 
-`RidgeRegCuda` is an R package providing high-performance ridge regression using NVIDIA CUDA for GPU acceleration. The package implements ridge regression with both permutation testing and t-test significance testing, optimized for NVIDIA GPUs.
+`RidgeCuda` is an R package providing high-performance ridge regression using NVIDIA CUDA for GPU acceleration. The package implements ridge regression with both permutation testing and t-test significance testing, optimized for NVIDIA GPUs.
 
 ## Features
 
@@ -26,8 +26,8 @@
 install.packages("remotes")
 install.packages("Matrix") # For sparse matrix support
 
-# Install RidgeRegCuda
-remotes::install_github("yourusername/RidgeRegCuda")
+# Install RidgeCuda
+remotes::install_github("yourusername/RidgeCuda")
 ```
 
 ### Prerequisites
@@ -41,7 +41,7 @@ remotes::install_github("yourusername/RidgeRegCuda")
 ### Basic Example
 
 ```r
-library(RidgeRegCuda)
+library(RidgeCuda)
 
 # Check CUDA availability
 check_cuda_available()
@@ -73,7 +73,7 @@ cleanup_cuda()
 ### Using Sparse Matrices
 
 ```r
-library(RidgeRegCuda)
+library(RidgeCuda)
 library(Matrix)
 
 # Generate sample data
@@ -120,11 +120,11 @@ The CUDA implementation provides significant performance improvements over CPU-b
 If you use this package in your research, please cite:
 
 ```
-@misc{RidgeRegCuda2025,
+@misc{RidgeCuda2025,
   author = {Your Name},
-  title = {RidgeRegCuda: CUDA-Accelerated Ridge Regression for R},
+  title = {RidgeCuda: CUDA-Accelerated Ridge Regression for R},
   year = {2025},
-  url = {https://github.com/yourusername/RidgeRegCuda}
+  url = {https://github.com/yourusername/RidgeCuda}
 }
 ```
 

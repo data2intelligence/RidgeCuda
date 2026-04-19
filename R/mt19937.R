@@ -5,12 +5,12 @@
 # step. Each accelerator package carries its own copy so it can
 # be installed standalone without pulling SecAct.
 #
-# Drift canary for this copy: RidgeRegCuda/tests/test_gpu_parity.sbatch
-# requires a GPU node. The sbatch compares RidgeRegCuda output
-# against RidgeRegFast's C-side perm table; if this file drifts
+# Drift canary for this copy: RidgeCuda/tests/test_gpu_parity.sbatch
+# requires a GPU node. The sbatch compares RidgeCuda output
+# against RidgeFast's C-side perm table; if this file drifts
 # from the GSL MT19937 (seed 0) contract the inv_table fed to
 # ridge_cuda_dense_with_perm_r is wrong and se/zscore/pvalue
-# diverge from RidgeRegFast. SecAct's testthat tests do NOT
+# diverge from RidgeFast. SecAct's testthat tests do NOT
 # exercise this copy.
 #
 # Produces output identical to gsl_rng_mt19937 with seed 0.
@@ -116,7 +116,7 @@
 #'
 #' Generates the same permutation table as GSL's MT19937 (seed 0) with
 #' Fisher-Yates shuffle. Used as the canonical RNG across SecAct,
-#' RidgeRegFast (CPU), and RidgeRegCuda (GPU) so permutation sequences
+#' RidgeFast (CPU), and RidgeCuda (GPU) so permutation sequences
 #' match bitwise across backends.
 #'
 #' @param n Number of samples (array length to shuffle).

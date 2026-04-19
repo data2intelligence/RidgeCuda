@@ -121,10 +121,10 @@ secact_cuda <- function(expr_data,
       internal_data_env <- new.env(parent = emptyenv())
       tryCatch({
           # This relies on the object being saved in R/sysdata.rda during build
-          utils::data(list=sig_object_name, package = "RidgeRegCuda", envir = internal_data_env)
+          utils::data(list=sig_object_name, package = "RidgeCuda", envir = internal_data_env)
       }, error = function(e) {
           stop("Failed to load internal data '", sig_object_name,
-               "' from package 'RidgeRegCuda'. Ensure it exists in 'R/sysdata.rda'. Error: ", e$message)
+               "' from package 'RidgeCuda'. Ensure it exists in 'R/sysdata.rda'. Error: ", e$message)
       })
 
       if (!exists(sig_object_name, envir = internal_data_env)) {

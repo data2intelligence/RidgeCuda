@@ -80,11 +80,16 @@ estimate_cuda_memory <- function(n_genes, n_features, n_samples, n_rand = 1000,
       stop("CUDA initialization failed, cannot estimate memory. Message: ", init_stat$message)
   }
 
-  # Call C++ function registered as "ridge_cuda_memory_requirements_r"
-  # Pass logical `is_sparse` as integer (0/1) to C
+  # Call C++ function registered as "ridge_cuda_memory_requirements_r".
+  # `is_sparse` is passed through as a LOGICAL because the C side calls
+  # `isLogical()` on it before `asLogical()`. An earlier as.integer()
+  # wrapper mismatched this check and surfaced as:
+  #   "is_sparse must be single logical"
+  # whenever ridge_cuda() was reached via the non-canonical code path
+  # (e.g. rng_method="srand" in RidgeCuda::ridge).
   result <- .Call("ridge_cuda_memory_requirements_r",
                  as.integer(n_genes), as.integer(n_features), as.integer(n_samples),
-                 nnz_val, as.integer(is_sparse), as.integer(n_rand), as.integer(batch_size),
+                 nnz_val, is_sparse, as.integer(n_rand), as.integer(batch_size),
                  PACKAGE = "RidgeCuda")
 
   # Convert output bytes to numeric for easier use in R

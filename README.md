@@ -155,6 +155,55 @@ ridge_batch(X, Y, lambda, nrand, ncores, rng_method, device_id,
 
 Identical to `RidgeFast` except for the `device_id` argument.
 
+## Using on NIH Biowulf
+
+Biowulf's GPU nodes carry 4 GPUs each across several SKUs
+(`v100x`, `a100`, `p100`, `v100`). Check availability with
+`freen | grep -E 'Partition|gpu'`. Allocate one GPU for an
+interactive session and install + run RidgeCuda on it:
+
+```sh
+# 1. Allocate: one GPU + 8 CPUs + 16G RAM for 4 hours
+sinteractive --gres=gpu:v100x:1 --cpus-per-task=8 --mem=16g --time=4:00:00
+
+# 2. Load toolchain (do this in the sinteractive shell, not on login)
+module load CUDA/12.1 gcc/11.3.0 GSL/2.7_gcc-11.3.0 R/4.3.2
+
+# 3. Install RidgeCuda from source (nvcc is only present on GPU nodes)
+R -e 'remotes::install_github("psychemistz/RidgeCuda")'
+
+# 4. Verify the GPU is visible
+nvidia-smi
+R -e 'RidgeCuda::check_cuda_available(); RidgeCuda::get_cuda_devices()'
+```
+
+GPU-type requests and CPU caps (Biowulf limits: `#CPUs / #GPUs` CPUs
+per GPU on a node):
+
+```sh
+# request one p100 GPU
+sinteractive --gres=gpu:p100:1
+
+# one a100 GPU with 16 CPUs
+sinteractive --gres=gpu:a100:1 --cpus-per-task=16 --mem=32g
+
+# batch mode: one v100x GPU, one task
+sbatch --partition=gpu --gres=gpu:v100x:1 my_script.sh
+```
+
+Monitor device utilisation while a job is running:
+
+```sh
+# From the compute node where your job runs
+nvidia-smi
+nvidia-smi dmon -s u   # streaming utilisation every 1s
+```
+
+For large-cohort inference, see `ridge_batch()` above — it bounds
+peak GPU memory to roughly `batch_size * (p + n_rand) * 8 bytes`
+plus the shared `T` projection, letting you run `m` in the millions
+even on a single V100 (16 GB).
+
 ## Troubleshooting
 
 - **CUDA not found at install**: set `CUDA_HOME` to your toolkit

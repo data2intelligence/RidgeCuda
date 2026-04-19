@@ -1,11 +1,12 @@
 # =========================================================
 # Pure R implementation of GSL's MT19937 (Mersenne Twister)
 #
+# SYNC SOURCE: SecAct/R/mt19937.R — keep these two copies in
+# step. Each accelerator package carries its own copy so it can
+# be installed standalone without pulling SecAct.
+#
 # Produces output identical to gsl_rng_mt19937 with seed 0.
 # Algorithm: Matsumoto & Nishimura (1998) with 2002 init.
-# No external dependency — uses doubles for 32-bit unsigned
-# arithmetic. Bitwise ops decompose into 16-bit halves
-# (each in [0,65535], safe as R signed int32).
 # =========================================================
 
 #' @keywords internal

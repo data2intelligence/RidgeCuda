@@ -19,6 +19,27 @@
 static SEXP create_result_list(SEXP beta_r, SEXP se_r, SEXP zscore_r, SEXP pvalue_r,
                               double df_val, int status_code, const char* status_msg);
 
+static const char* ridge_status_msg(int code) {
+    switch (code) {
+        case 0:   return "Success";
+        case -10: return "CUDA not initialized";
+        case -11: return "Invalid input dimensions";
+        case -12: return "Invalid lambda value";
+        case -13: return "NULL pointer provided to C function";
+        case -14: return "Invalid n_rand value (must be > 0)";
+        case 1:   return "General CUDA Runtime Error";
+        case 2:   return "cuBLAS Error";
+        case 3:   return "cuSOLVER Error";
+        case 4:   return "cuSPARSE Error";
+        case 5:   return "cuRAND Error";
+        case 10:  return "Cholesky factorization failed";
+        case 11:  return "Linear system solve failed";
+        case 12:  return "Host memory allocation failed (permutation)";
+        case 13:  return "Host memory allocation failed (permutation stats)";
+        default:  return "Unknown error in ridge_cuda backend";
+    }
+}
+
 //----------------------------------------------------------------------------//
 // Environment Management R Interface Functions                             //
 //----------------------------------------------------------------------------//
@@ -303,32 +324,9 @@ SEXP ridge_cuda_dense_r(SEXP X_r, SEXP Y_r, SEXP lambda_r, SEXP n_rand_r, SEXP b
                                beta_ptr, se_ptr, zscore_ptr, pvalue_ptr,
                                NULL /* no perm_table: use fisher_yates */);
 
-    // --- Prepare Result List ---
-    const char* message;
-    switch (status) { // Update cases if C function error codes changed
-        case 0: message = "Success"; break;
-        case -10: message = "CUDA not initialized"; break;
-        case -11: message = "Invalid input dimensions"; break;
-        case -12: message = "Invalid lambda value"; break;
-        case -13: message = "NULL pointer provided to C function"; break;
-        case -14: message = "Invalid n_rand value (must be > 0)"; break; // Added if used in .cu
-        case 1:   message = "General CUDA Runtime Error"; break;
-        case 2:   message = "cuBLAS Error"; break;
-        case 3:   message = "cuSOLVER Error"; break;
-        case 4:   message = "cuSPARSE Error"; break;
-        case 5:   message = "cuRAND Error"; break;
-        case 10:  message = "Cholesky factorization failed"; break;
-        case 11:  message = "Linear system solve failed"; break;
-        case 12:  message = "Host memory allocation failed (permutation)"; break;
-        case 13:  message = "Host memory allocation failed (permutation stats)"; break;
-        // Removed t-test specific codes (20, 21)
-        default:  message = "Unknown error occurred in ridge_cuda_dense C function";
-    }
-
-    // Pass NA_REAL for df_val
-    SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r, NA_REAL, status, message);
-
-    UNPROTECT(4); // beta_r, se_r, zscore_r, pvalue_r
+    SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r,
+                                     NA_REAL, status, ridge_status_msg(status));
+    UNPROTECT(4);
     return result;
 }
 
@@ -421,32 +419,9 @@ SEXP ridge_cuda_sparse_r(SEXP X_r, SEXP Y_r, SEXP lambda_r, SEXP n_rand_r, SEXP 
                                 n_samples, nnz, lambda_val, n_rand, batch_size,
                                 beta_ptr, se_ptr, zscore_ptr, pvalue_ptr);
 
-    // --- Prepare Result List ---
-    const char* message;
-    switch (status) { // Update cases if C function error codes changed
-        case 0: message = "Success"; break;
-        case -10: message = "CUDA not initialized"; break;
-        case -11: message = "Invalid input dimensions"; break;
-        case -12: message = "Invalid lambda value"; break;
-        case -13: message = "NULL pointer provided to C function"; break;
-        case -14: message = "Invalid n_rand value (must be > 0)"; break; // Added if used in .cu
-        case 1:   message = "General CUDA Runtime Error"; break;
-        case 2:   message = "cuBLAS Error"; break;
-        case 3:   message = "cuSOLVER Error"; break;
-        case 4:   message = "cuSPARSE Error"; break;
-        case 5:   message = "cuRAND Error"; break;
-        case 10:  message = "Cholesky factorization failed"; break;
-        case 11:  message = "Linear system solve failed"; break;
-        case 12:  message = "Host memory allocation failed (permutation)"; break;
-        case 13:  message = "Host memory allocation failed (permutation stats)"; break;
-        // Removed t-test specific codes (20, 21)
-        default:  message = "Unknown error occurred in ridge_cuda_sparse C function";
-    }
-
-    // Pass NA_REAL for df_val
-    SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r, NA_REAL, status, message);
-
-    UNPROTECT(8); // Slots (4) + output objects (4)
+    SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r,
+                                     NA_REAL, status, ridge_status_msg(status));
+    UNPROTECT(8);
     return result;
 }
 
@@ -993,8 +968,8 @@ SEXP ridge_cuda_dense_with_perm_r(SEXP X_r, SEXP Y_r, SEXP lambda_r,
                                   perm_rowmajor);
     free(perm_rowmajor);
 
-    const char* message = (status == 0) ? "Success" : "ridge_cuda_dense returned non-zero status";
-    SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r, NA_REAL, status, message);
+    SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r,
+                                     NA_REAL, status, ridge_status_msg(status));
     UNPROTECT(4);
     return result;
 }

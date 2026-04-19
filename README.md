@@ -1,130 +1,144 @@
-# RidgeCuda: CUDA-Accelerated Ridge Regression for R
+# RidgeCuda
 
-`RidgeCuda` is an R package providing high-performance ridge regression using NVIDIA CUDA for GPU acceleration. The package implements ridge regression with both permutation testing and t-test significance testing, optimized for NVIDIA GPUs.
+GPU-accelerated ridge regression with permutation testing, powered by
+NVIDIA CUDA. Exports `ridge()` for one-shot inference and
+`ridge_batch()` for memory-efficient column-batched inference with
+optional HDF5 I/O — an optional accelerator for the
+[SecAct](https://github.com/data2intelligence/SecAct) R package.
 
-## Features
+## When to install
 
-- **GPU Acceleration**: Utilizes NVIDIA CUDA for major performance improvements over CPU implementations
-- **Multiple Test Methods**: Supports both permutation testing and t-test for significance testing
-- **Sparse Matrix Support**: Efficient handling of sparse matrices using cuSPARSE
-- **Easy R Interface**: Familiar R interface with comprehensive documentation
-- **Automatic Device Selection**: Can manage multiple GPU devices
+Install RidgeCuda if you have an NVIDIA GPU (Compute Capability 6.0+)
+and are running SecAct on large datasets. SecAct works out-of-the-box
+without it (pure-R fallback) and falls back to
+[RidgeFast](https://github.com/psychemistz/RidgeFast) on CPU. With
+RidgeCuda installed and a GPU visible, SecAct auto-dispatches to it
+via `backend = "auto"`.
 
 ## Requirements
 
 - R (>= 3.6.0)
-- NVIDIA CUDA Toolkit (>= 10.0)
-- NVIDIA GPU with compute capability 5.0 or higher (Maxwell architecture or newer)
-- For sparse matrix support: R package `Matrix`
+- NVIDIA CUDA Toolkit (>= 11.0 recommended)
+- NVIDIA GPU with compute capability 6.0+ (Pascal or newer) for
+  double-precision
+- Optional: `rhdf5` for `ridge_batch()` HDF5 input/output
 
 ## Installation
-
-### From Source
 
 ```r
 # Install dependencies
 install.packages("remotes")
-install.packages("Matrix") # For sparse matrix support
+install.packages("Matrix")
 
-# Install RidgeCuda
-remotes::install_github("yourusername/RidgeCuda")
+# Optional, for HDF5 streaming:
+# BiocManager::install("rhdf5")
+
+# Install RidgeCuda (needs CUDA_HOME set if it isn't auto-detected)
+remotes::install_github("psychemistz/RidgeCuda")
 ```
-
-### Prerequisites
-
-1. Ensure CUDA Toolkit is installed (version 10.0 or higher)
-2. Ensure compatible NVIDIA GPU drivers are installed
-3. Set the `CUDA_HOME` environment variable to point to your CUDA installation (optional)
 
 ## Usage
 
-### Basic Example
+### One-shot inference (SecAct accelerator contract)
+
+Use `ridge()` as a drop-in replacement for `RidgeFast::ridge()`:
 
 ```r
 library(RidgeCuda)
 
-# Check CUDA availability
-check_cuda_available()
-
-# List available GPU devices
-get_cuda_devices()
-
-# Generate sample data
-n_genes <- 5000
-n_features <- 100
-n_samples <- 20
-
-X <- matrix(rnorm(n_genes * n_features), nrow = n_genes, ncol = n_features)
-Y <- matrix(rnorm(n_genes * n_samples), nrow = n_genes, ncol = n_samples)
-
-# Run ridge regression with permutation test (default)
-result <- ridge_cuda(X, Y, lambda = 1.0, n_rand = 1000)
-
-# Display summary
-summary(result)
-
-# Run ridge regression with t-test
-result_ttest <- ridge_cuda(X, Y, lambda = 1.0, n_rand = 0)
-
-# Clean up CUDA resources when done
-cleanup_cuda()
+# X: n x p signature matrix, column-scaled
+# Y: n x m expression matrix, column-scaled
+res <- ridge(X, Y,
+             lambda     = 5e+05,
+             nrand      = 1000,
+             ncores     = 1L,          # ignored on GPU
+             rng_method = "mt19937",   # "mt19937" | "srand"
+             device_id  = 0L)
+str(res)
+# List of 4: beta, se, zscore, pvalue — each p x m matrix
 ```
 
-### Using Sparse Matrices
+### Batched inference (large m)
+
+`ridge_batch()` processes `Y` in column-batches, bounding peak GPU
+memory. Output is bit-identical to `ridge()` at `ncores = 1`.
+
+```r
+# In-memory Y
+res <- ridge_batch(X, Y, lambda = 5e+05, nrand = 1000, batch_size = 5000)
+
+# HDF5 input
+res <- ridge_batch(X, Y = "Y_expr.h5",
+                   lambda = 5e+05, nrand = 1000, batch_size = 5000)
+
+# Streaming output
+meta <- ridge_batch(X, Y, lambda = 5e+05, nrand = 1000,
+                    batch_size = 5000, output_h5 = "results.h5")
+
+# Custom reader
+res <- ridge_batch(X, Y = NULL, n_samples = m, reader = my_reader,
+                   lambda = 5e+05, nrand = 1000, batch_size = 5000)
+```
+
+### Legacy `ridge_cuda()` API
+
+The lower-level `ridge_cuda()`, sparse `Y` support, and CUDA utilities
+(`check_cuda_available`, `get_cuda_devices`, `get_cuda_memory_info`,
+`cleanup_cuda`, `scale_dense_matrix_cuda`, `scale_sparse_matrix_csc_cuda`)
+remain available for users who need fine-grained control.
 
 ```r
 library(RidgeCuda)
 library(Matrix)
 
-# Generate sample data
-n_genes <- 5000
-n_features <- 100
-n_samples <- 20
+check_cuda_available()
+get_cuda_devices()
 
-X <- matrix(rnorm(n_genes * n_features), nrow = n_genes, ncol = n_features)
-Y <- matrix(rnorm(n_genes * n_samples), nrow = n_genes, ncol = n_samples)
-
-# Create sparse Y matrix (with 95% sparsity)
+# Sparse Y support (dgCMatrix)
 Y_sparse <- Matrix(Y * (runif(length(Y)) > 0.95), sparse = TRUE)
+res <- ridge_cuda(X, Y_sparse, lambda = 1.0, n_rand = 1000)
+summary(res)
 
-# Run ridge regression with sparse Y matrix
-result_sparse <- ridge_cuda(X, Y_sparse, lambda = 1.0, n_rand = 1000)
-
-summary(result_sparse)
+cleanup_cuda()
 ```
 
-## Performance
+## Reproducibility
 
-The CUDA implementation provides significant performance improvements over CPU-based implementations, especially for large datasets and when performing permutation testing with a high number of permutations.
+- `rng_method = "mt19937"` (default) with `ncores = 1` → bit-identical
+  to SecAct's pure-R and RidgeFast's CPU-fast backends in their
+  canonical modes. Batched output is bit-identical to single-call
+  output. Parity is verified by the
+  [`tests/test_gpu_batch.sbatch`](tests/test_gpu_batch.sbatch) SLURM
+  script.
+- `rng_method = "srand"` → faster setup but not reproducible.
+
+## API
+
+```
+ridge(X, Y, lambda, nrand, ncores, rng_method, device_id)
+ridge_batch(X, Y, lambda, nrand, ncores, rng_method, device_id,
+            batch_size, reader, n_samples, output_h5, verbose)
+```
+
+Identical to `RidgeFast` except for the `device_id` argument.
 
 ## Troubleshooting
 
-### Common Issues
-
-1. **CUDA not found during installation**: 
-   - Ensure CUDA Toolkit is installed
-   - Set the `CUDA_HOME` environment variable to your CUDA installation path
-
-2. **Package loads but fails when running functions**:
-   - Make sure your NVIDIA drivers are up to date
-   - Check GPU compatibility (compute capability 5.0+)
-   - Try running with fewer dimensions or permutations
-
-3. **Memory errors**:
-   - Reduce the size of input matrices
-   - Reduce the number of permutations
-   - Use sparse matrices when appropriate
+- **CUDA not found at install**: set `CUDA_HOME` to your toolkit
+  install path (e.g., `/usr/local/CUDA/12.1.0`) before
+  `remotes::install_github`.
+- **GPU out-of-memory**: reduce `batch_size` in `ridge_batch()`, or
+  lower `nrand`; check `get_cuda_memory_info()` for headroom.
+- **Compute-capability too low**: this package requires CC ≥ 6.0 for
+  double-precision. Older GPUs (Maxwell, Kepler) are not supported.
 
 ## Citation
 
-If you use this package in your research, please cite:
-
 ```
-@misc{RidgeCuda2025,
-  author = {Your Name},
+@misc{RidgeCuda,
+  author = {Seongyong Park},
   title = {RidgeCuda: CUDA-Accelerated Ridge Regression for R},
-  year = {2025},
-  url = {https://github.com/yourusername/RidgeCuda}
+  url = {https://github.com/psychemistz/RidgeCuda}
 }
 ```
 

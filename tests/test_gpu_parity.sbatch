@@ -54,7 +54,7 @@ for (nm in c("beta", "se", "zscore", "pvalue")) {
 setwd("/vf/users/parks34/projects/1ridgesig/SecAct")
 for (f in list.files("R", pattern="\\.R$", full.names=TRUE)) source(f)
 
-r_pure <- .ridge_pureR(X, Y, lambda, nrand, rng_method = "mt19937")
+r_pure <- .ridge_pureR(X, Y, lambda, nrand)
 
 cat("\n=== PARITY (pure-R vs GPU, both mt19937) ===\n")
 for (nm in c("beta", "se", "zscore", "pvalue")) {

@@ -10,5 +10,7 @@ src/Makevars
 src/*.o
 src/*.so
 test_gpu_parity.*.log
+test_gpu_batch.*.log
+tests/test_gpu_*.log
 *.out
 *.slurm.log

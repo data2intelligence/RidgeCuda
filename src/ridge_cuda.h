@@ -117,7 +117,12 @@ int ridge_cuda_dense(
     double *beta,
     double *se,
     double *zscore,
-    double *pvalue
+    double *pvalue,
+    const int *perm_table  /* Optional: n_rand x n_genes, row-major.
+                              NULL = fisher_yates (platform rand, not
+                              reproducible). Non-NULL = use provided
+                              permutations (e.g. MT19937 seed 0 from R)
+                              for cross-backend bitwise reproducibility. */
 );
 
 /**

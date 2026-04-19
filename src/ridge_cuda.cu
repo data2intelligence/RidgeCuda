@@ -859,7 +859,8 @@ int ridge_cuda_dense(
     double *beta,   /* n_features x n_samples */
     double *se,     /* n_features x n_samples */
     double *zscore, /* n_features x n_samples */
-    double *pvalue /* n_features x n_samples */
+    double *pvalue, /* n_features x n_samples */
+    const int *perm_table  /* n_rand x n, row-major, 0-indexed. NULL = fisher_yates. */
 ) {
     // --- Input Validation ---
     if (!cuda_initialized) { fprintf(stderr, "Error: CUDA not initialized. Call ridge_cuda_init() first.\n"); return -10; }
@@ -1029,9 +1030,15 @@ int ridge_cuda_dense(
         
         // Permutation loop
         for (int r = 0; r < n_rand; r++) {
-            // Generate permutation indices on host
-            for (int i = 0; i < n; i++) h_indices[i] = i;
-            fisher_yates_shuffle(h_indices, n);
+            if (perm_table != NULL) {
+                // Caller-supplied permutation (e.g. MT19937 from R side).
+                // Preserves bitwise parity with CPU backends.
+                memcpy(h_indices, perm_table + (size_t)r * n, n * sizeof(int));
+            } else {
+                // Fallback: in-process Fisher-Yates with C stdlib rand().
+                for (int i = 0; i < n; i++) h_indices[i] = i;
+                fisher_yates_shuffle(h_indices, n);
+            }
             CHECK_CUDA(cudaMemcpy(d_indices, h_indices, n * sizeof(int), cudaMemcpyHostToDevice));
             
             // Permute columns of T (p x n) based on row indices of original X/Y

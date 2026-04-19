@@ -3,6 +3,7 @@
 S3method(print,ridge_cuda)
 S3method(print,summary.ridge_cuda)
 S3method(summary,ridge_cuda)
+export(Ridge.Reg.Fast)
 export(check_cuda_available)
 export(cleanup_cuda)
 export(estimate_cuda_memory)

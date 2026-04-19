@@ -1,0 +1,201 @@
+[+] Loading CUDA Toolkit  12.1.0  ... 
+[+] Loading gcc  11.3.0  ... 
+[+] Loading GSL 2.7 for gcc/11.3.0 ...
+[+] Loading HDF5  1.12.2 
+[+] Loading netcdf  4.9.0 
+[-] Unloading gcc  11.3.0  ... 
+[+] Loading gcc  11.3.0  ... 
+[+] Loading openmpi/4.1.3/gcc-11.3.0  ... 
+[+] Loading pandoc  2.18  on cn4464 
+[+] Loading pcre2  10.40 
+[+] Loading R 4.3.2 
+[INFO] Please allocate lscratch for batch/sinteractive R jobs
+* installing to library ‘/vf/users/parks34/R/4.3’
+* installing *source* package ‘RidgeCuda’ ...
+** using staged installation
+-- Detecting R include directory...
+-- Using R executable from R_HOME: /usr/local/apps/R/4.3/4.3.2/lib64/R/bin/R
+-- Using Rscript executable: /usr/local/apps/R/4.3/4.3.2/lib64/R/bin/Rscript
+-- Using R include directory: /usr/local/apps/R/4.3/4.3.2/lib64/R/include
+-- Using CUDA_HOME from environment: /usr/local/CUDA/12.1.0
+-- Detected CUDA version via nvcc: 12.1
+-- CUDA_ARCH not set in environment, using default architectures.
+-- Using default CUDA architectures: -gencode arch=compute_60,code=sm_60                         -gencode arch=compute_70,code=sm_70                         -gencode arch=compute_75,code=sm_75                         -gencode arch=compute_80,code=sm_80                         -gencode arch=compute_86,code=sm_86                         -gencode arch=compute_90,code=sm_90                         -gencode arch=compute_90,code=compute_90
+-- Using CUDA library directory: /usr/local/CUDA/12.1.0/lib64
+-- Creating src/Makevars from src/Makevars.in
+-- Template src/Makevars.in found and is readable.
+-- Configuration completed successfully.
+** libs
+using C++ compiler: ‘g++ (GCC) 11.3.0’
+using C++11
+/usr/local/apps/R/4.3/4.3.2/lib64/R/share/make/shlib.mk:10: warning: overriding recipe for target 'RidgeCuda.so'
+Makevars:34: warning: ignoring old recipe for target 'RidgeCuda.so'
+make: 'RidgeCuda.so' is up to date.
+installing to /vf/users/parks34/R/4.3/00LOCK-RidgeCuda/00new/RidgeCuda/libs
+** R
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+  converting help for package ‘RidgeCuda’
+    finding HTML links ... done
+    check_cuda_available                    html  
+    cleanup_cuda                            html  
+    dot-onUnload                            html  
+    estimate_cuda_memory                    html  
+    get_cuda_devices                        html  
+    get_cuda_memory_info                    html  
+    print.ridge_cuda                        html  
+    print.summary.ridge_cuda                html  
+    ridge_cuda                              html  
+    scale_dense_matrix_cuda                 html  
+    scale_sparse_matrix_csc_cuda            html  
+    secact_cuda                             html  
+    set_cuda_async_mode                     html  
+    set_cuda_memory_options                 html  
+    summary.ridge_cuda                      html  
+** building package indices
+** testing if installed package can be loaded from temporary location
+** checking absolute paths in shared objects and dynamic libraries
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (RidgeCuda)
+[INFO] Please allocate lscratch for batch/sinteractive R jobs
+
+R version 4.3.2 (2023-10-31) -- "Eye Holes"
+Copyright (C) 2023 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> library(RidgeFast)
+> library(RidgeCuda)
+
+Attaching package: ‘RidgeCuda’
+
+The following objects are masked from ‘package:RidgeFast’:
+
+    ridge, ridge_batch
+
+> 
+> set.seed(23)
+> n <- 300; p <- 15; m <- 140
+> X <- matrix(rnorm(n * p), n, p); colnames(X) <- paste0("sig", 1:p)
+> Y <- matrix(rnorm(n * m), n, m); colnames(Y) <- paste0("s", 1:m)
+> X <- scale(X); Y <- scale(Y)
+> 
+> lambda <- 50; nrand <- 150L; bs <- 33L
+> 
+> cat("\n--- GPU single-call ---\n")
+
+--- GPU single-call ---
+> r_single <- RidgeCuda::ridge(X, Y, lambda, nrand, ncores = 1L,
++                              rng_method = "mt19937")
+Processing 140 samples in 1 batches of up to 140 samples each
+Processing batch 1/1: columns 1 to 140
+> 
+> cat("\n--- GPU batched (in-memory) ---\n")
+
+--- GPU batched (in-memory) ---
+> r_bmem <- RidgeCuda::ridge_batch(X, Y, lambda, nrand, ncores = 1L,
++                                  rng_method = "mt19937",
++                                  batch_size = bs)
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 8 samples in 1 batches of up to 8 samples each
+Processing batch 1/1: columns 1 to 8
+> 
+> cat("\n=== PARITY: GPU single vs GPU batched ===\n")
+
+=== PARITY: GPU single vs GPU batched ===
+> for (nm in c("beta", "se", "zscore", "pvalue")) {
++   d <- max(abs(r_single[[nm]] - r_bmem[[nm]]))
++   status <- if (d < 1e-9) "PASS" else if (d < 1e-6) "NEAR" else "FAIL"
++   cat(sprintf("  %-7s max|diff| = %.3e   [%s]\n", nm, d, status))
++ }
+  beta    max|diff| = 5.551e-17   [PASS]
+  se      max|diff| = 2.082e-17   [PASS]
+  zscore  max|diff| = 1.110e-15   [PASS]
+  pvalue  max|diff| = 0.000e+00   [PASS]
+> 
+> cat("\n--- GPU batched (HDF5 in/out) ---\n")
+
+--- GPU batched (HDF5 in/out) ---
+> h5_in  <- tempfile(fileext = ".h5")
+> h5_out <- tempfile(fileext = ".h5")
+> rhdf5::h5createFile(h5_in)
+> rhdf5::h5write(Y, h5_in, "Y")
+> rhdf5::h5write(colnames(Y), h5_in, "sample_names")
+> meta <- RidgeCuda::ridge_batch(X, Y = h5_in, lambda, nrand, ncores = 1L,
++                                rng_method = "mt19937", batch_size = bs,
++                                output_h5 = h5_out)
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 33 samples in 1 batches of up to 33 samples each
+Processing batch 1/1: columns 1 to 33
+Processing 8 samples in 1 batches of up to 8 samples each
+Processing batch 1/1: columns 1 to 8
+> cat(sprintf("  wrote: %s (p=%d, m=%d, %d batches)\n",
++             meta$path, meta$p, meta$m, meta$num_batches))
+  wrote: /tmp/RtmpdP05S5/file3fbaed1a7957f3.h5 (p=15, m=140, 5 batches)
+> 
+> cat("\n=== PARITY: GPU in-mem batched vs GPU HDF5 round-trip ===\n")
+
+=== PARITY: GPU in-mem batched vs GPU HDF5 round-trip ===
+> for (nm in c("beta", "se", "zscore", "pvalue")) {
++   v_h5 <- rhdf5::h5read(h5_out, nm)
++   v_mem <- r_bmem[[nm]]; dimnames(v_mem) <- NULL
++   d <- max(abs(v_h5 - v_mem))
++   status <- if (d < 1e-12) "PASS" else "FAIL"
++   cat(sprintf("  %-7s max|diff| = %.3e   [%s]\n", nm, d, status))
++ }
+  beta    max|diff| = 0.000e+00   [PASS]
+  se      max|diff| = 0.000e+00   [PASS]
+  zscore  max|diff| = 0.000e+00   [PASS]
+  pvalue  max|diff| = 0.000e+00   [PASS]
+> 
+> cat("\n--- RidgeFast batched for cross-backend parity ---\n")
+
+--- RidgeFast batched for cross-backend parity ---
+> r_fbatch <- RidgeFast::ridge_batch(X, Y, lambda, nrand, ncores = 1L,
++                                    rng_method = "mt19937", batch_size = bs)
+> 
+> cat("\n=== PARITY: RidgeFast batched vs RidgeCuda batched ===\n")
+
+=== PARITY: RidgeFast batched vs RidgeCuda batched ===
+> for (nm in c("beta", "se", "zscore", "pvalue")) {
++   d <- max(abs(r_fbatch[[nm]] - r_bmem[[nm]]))
++   status <- if (d < 1e-9) "PASS" else if (d < 1e-6) "NEAR" else "FAIL"
++   cat(sprintf("  %-7s max|diff| = %.3e   [%s]\n", nm, d, status))
++ }
+  beta    max|diff| = 1.527e-16   [PASS]
+  se      max|diff| = 6.245e-17   [PASS]
+  zscore  max|diff| = 2.665e-15   [PASS]
+  pvalue  max|diff| = 0.000e+00   [PASS]
+> 
+> unlink(h5_in); unlink(h5_out)
+> cat("\nDone.\n")
+
+Done.
+> 

@@ -19,6 +19,8 @@ Description: Provides high-performance ridge regression computations using
     Includes utility functions for CUDA device management and GPU memory
     estimation.
 License: GPL (>= 2)
+Depends:
+    R (>= 3.6.0)
 Imports:
     methods,
     Matrix

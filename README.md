@@ -163,7 +163,7 @@ depending on availability (`freen | grep gpu`).
 
 ```sh
 sinteractive --gres=gpu:v100x:1 --cpus-per-task=8 --mem=16g
-module load CUDA/12.1 gcc/11.3.0 GSL/2.7_gcc-11.3.0 R/4.3.2
+module load CUDA/12.1 gcc/11.3.0 R/4.3.2
 R -e 'remotes::install_github("psychemistz/RidgeCuda")'
 ```
 

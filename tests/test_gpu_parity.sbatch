@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-module load CUDA/12.1 gcc/11.3.0 R/4.3
+module load CUDA/12.1 gcc/11.3.0 GSL/2.7_gcc-11.3.0 R/4.3.2
 
 cd /vf/users/parks34/projects/1ridgesig/RidgeRegCuda
 

@@ -62,11 +62,21 @@ Ridge.Reg.Fast <- function(X, Y, lambda = 5e+05, nrand = 1000L,
       stop("CUDA initialization failed: ", cuda_status$message)
     }
     n <- nrow(X)
-    perm_table <- .gsl_mt19937_perm_table(n, as.integer(nrand))
-    storage.mode(perm_table) <- "integer"
+    fwd_table <- .gsl_mt19937_perm_table(n, as.integer(nrand))
+    # RidgeRegFast's Tcol kernel applies T_perm[:,j] = T[:, inv[j]] where
+    # inv is the inverse of the forward Fisher-Yates permutation. CUDA's
+    # permuteColumnsKernel applies T_perm[:,j] = T[:, indices[j]] directly.
+    # Invert here so CUDA's indices = RidgeRegFast's inv — giving
+    # bit-equivalent T_perm matrices and thus matching beta_rand / stats.
+    inv_table <- matrix(0L, nrow = nrow(fwd_table), ncol = ncol(fwd_table))
+    col_ids_0 <- seq_len(n) - 1L
+    for (r in seq_len(nrow(fwd_table))) {
+      inv_table[r, fwd_table[r, ] + 1L] <- col_ids_0
+    }
+    storage.mode(inv_table) <- "integer"
     res <- .Call("ridge_cuda_dense_with_perm_r",
                  X, Y, as.double(lambda), as.integer(nrand),
-                 0L, as.integer(device_id), perm_table,
+                 0L, as.integer(device_id), inv_table,
                  PACKAGE = "RidgeRegCuda")
     return(list(
       beta   = pick(res$beta,   p, m, dn),

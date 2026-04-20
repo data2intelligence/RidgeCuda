@@ -36,8 +36,12 @@ ridge <- function(X, Y, lambda = 5e+05, nrand = 1000L,
                   ncores = 1L, rng_method = "srand", seed = 0L,
                   device_id = 0L) {
   if (!is.matrix(X)) X <- as.matrix(X)
-  if (!is.matrix(Y) && !inherits(Y, "Matrix")) Y <- as.matrix(Y)
-  if (!is.numeric(X)) stop("X must be numeric.")
+  # Densify any sparse input (dgCMatrix, etc.) so we always go through the
+  # deterministic host-perm-table path. Matches RidgeFast / RidgeR behavior
+  # for API parity — true in-device sparse math is a future optimization
+  # tracked separately. SecActpy remains the in-memory sparse specialist.
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  if (!is.numeric(X) || !is.numeric(Y)) stop("X and Y must be numeric.")
   if (nrow(X) != nrow(Y)) stop("nrow(X) must equal nrow(Y).")
 
   rng_norm <- match.arg(tolower(rng_method), c("mt19937", "srand"))
@@ -57,43 +61,32 @@ ridge <- function(X, Y, lambda = 5e+05, nrand = 1000L,
     out
   }
 
-  if (is.matrix(Y)) {
-    storage.mode(Y) <- "double"
-    cuda_status <- check_cuda_available(device_id = as.integer(device_id))
-    if (!cuda_status$available) {
-      stop("CUDA initialization failed: ", cuda_status$message)
-    }
-    n <- nrow(X)
-    # Build forward perm table on host per requested RNG.
-    fwd_table <- if (rng_norm == "mt19937") {
-      .gsl_mt19937_perm_table(n, as.integer(nrand), seed = as.integer(seed))
-    } else {
-      .Call("build_srand_perm_table_r",
-            as.integer(n), as.integer(nrand), as.integer(seed),
-            PACKAGE = "RidgeCuda")
-    }
-    # CUDA's permuteColumnsKernel reads T[:, indices[j]]; RidgeFast's
-    # Tcol kernel reads T[:, inv[j]]. Invert so both produce the same
-    # permuted T, which is mathematically a row-permutation of Y.
-    inv_table <- matrix(0L, nrow = nrow(fwd_table), ncol = ncol(fwd_table))
-    col_ids_0 <- seq_len(n) - 1L
-    for (r in seq_len(nrow(fwd_table))) {
-      inv_table[r, fwd_table[r, ] + 1L] <- col_ids_0
-    }
-    storage.mode(inv_table) <- "integer"
-    res <- .Call("ridge_cuda_dense_with_perm_r",
-                 X, Y, as.double(lambda), as.integer(nrand),
-                 0L, as.integer(device_id), inv_table,
-                 PACKAGE = "RidgeCuda")
-  } else {
-    # Sparse Y: fall back to ridge_cuda() which uses the in-kernel
-    # cuRAND path. That path is not yet seeded from `seed` — fix
-    # tracked separately as part of Lane D (sparse alignment).
-    res <- ridge_cuda(X = X, Y = Y,
-                      lambda = lambda,
-                      n_rand = as.integer(nrand),
-                      batch_size = 0L,
-                      device_id = as.integer(device_id))
+  storage.mode(Y) <- "double"
+  cuda_status <- check_cuda_available(device_id = as.integer(device_id))
+  if (!cuda_status$available) {
+    stop("CUDA initialization failed: ", cuda_status$message)
   }
+  n <- nrow(X)
+  # Build forward perm table on host per requested RNG.
+  fwd_table <- if (rng_norm == "mt19937") {
+    .gsl_mt19937_perm_table(n, as.integer(nrand), seed = as.integer(seed))
+  } else {
+    .Call("build_srand_perm_table_r",
+          as.integer(n), as.integer(nrand), as.integer(seed),
+          PACKAGE = "RidgeCuda")
+  }
+  # CUDA's permuteColumnsKernel reads T[:, indices[j]]; RidgeFast's
+  # Tcol kernel reads T[:, inv[j]]. Invert so both produce the same
+  # permuted T, which is mathematically a row-permutation of Y.
+  inv_table <- matrix(0L, nrow = nrow(fwd_table), ncol = ncol(fwd_table))
+  col_ids_0 <- seq_len(n) - 1L
+  for (r in seq_len(nrow(fwd_table))) {
+    inv_table[r, fwd_table[r, ] + 1L] <- col_ids_0
+  }
+  storage.mode(inv_table) <- "integer"
+  res <- .Call("ridge_cuda_dense_with_perm_r",
+               X, Y, as.double(lambda), as.integer(nrand),
+               0L, as.integer(device_id), inv_table,
+               PACKAGE = "RidgeCuda")
   wrap(res)
 }

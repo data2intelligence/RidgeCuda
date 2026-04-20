@@ -19,7 +19,10 @@
 #' @param lambda Ridge penalty (default 5e+05).
 #' @param nrand Number of permutations (default 1000).
 #' @param ncores Ignored on GPU (kept for API symmetry).
-#' @param rng_method \code{"mt19937"} (default) or \code{"srand"}.
+#' @param rng_method \code{"srand"} (default; matches original SecAct
+#'   C behavior) or \code{"mt19937"} (GSL MT19937, cross-platform
+#'   reproducible).
+#' @param seed Integer seed for the RNG (default 0).
 #' @param device_id CUDA device index (default 0).
 #' @param batch_size Number of Y-columns per batch (default 5000).
 #' @param reader Optional \code{function(start, end)} returning the
@@ -37,7 +40,7 @@
 #' @seealso \code{\link{ridge}}
 #' @export
 ridge_batch <- function(X, Y, lambda = 5e+05, nrand = 1000L,
-                        ncores = 1L, rng_method = "mt19937",
+                        ncores = 1L, rng_method = "srand", seed = 0L,
                         device_id = 0L,
                         batch_size = 5000L,
                         reader = NULL, n_samples = NULL,
@@ -95,7 +98,7 @@ ridge_batch <- function(X, Y, lambda = 5e+05, nrand = 1000L,
     if (is.null(colnames(Y_batch))) colnames(Y_batch) <- samp_names[s:e]
 
     res <- ridge(X, Y_batch, lambda = lambda, nrand = nrand,
-                 ncores = ncores, rng_method = rng_method,
+                 ncores = ncores, rng_method = rng_method, seed = seed,
                  device_id = device_id)
 
     if (h5_out) {

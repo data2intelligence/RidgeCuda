@@ -7,8 +7,9 @@
 #include <Rinternals.h>
 #include <R_ext/Rdynload.h> // For DllInfo and R_registerRoutines
 #include <cstring>         // For strcmp, etc. (though not strictly needed here)
+#include <cstdlib>         // For srand / rand (host-side Fisher-Yates)
 #include <vector>          // For std::vector in get_cuda_devices_r
-#include <cuda_runtime.h> 
+#include <cuda_runtime.h>
 
 #include "ridge_cuda.h"    // Include the C/CUDA interface header
 
@@ -975,6 +976,52 @@ SEXP ridge_cuda_dense_with_perm_r(SEXP X_r, SEXP Y_r, SEXP lambda_r,
 }
 
 
+/**
+ * @brief Host-side Fisher-Yates permutation table using C stdlib rand().
+ *
+ * Mirrors RidgeFast's build_perm_table srand path so the same
+ * permutation stream is consumed when rng_method="srand" is selected
+ * in either package. Returns (nrand x n) integer matrix, 0-indexed,
+ * column-major per R convention.
+ */
+SEXP build_srand_perm_table_r(SEXP n_r, SEXP n_rand_r, SEXP seed_r) {
+    if (!isInteger(n_r)     || length(n_r)     != 1) error("n must be a single integer value");
+    if (!isInteger(n_rand_r)|| length(n_rand_r)!= 1) error("n_rand must be a single integer value");
+    if (!isInteger(seed_r)  || length(seed_r)  != 1) error("seed must be a single integer value");
+
+    int n     = asInteger(n_r);
+    int nrand = asInteger(n_rand_r);
+    unsigned int seed = (unsigned int)asInteger(seed_r);
+    if (n     < 1) error("n must be >= 1");
+    if (nrand < 1) error("n_rand must be >= 1");
+
+    SEXP result = PROTECT(allocMatrix(INTSXP, nrand, n));
+    int* result_ptr = INTEGER(result);
+
+    int* temp = (int*)malloc((size_t)n * sizeof(int));
+    if (!temp) { UNPROTECT(1); error("Failed to allocate srand perm buffer"); }
+    for (int k = 0; k < n; k++) temp[k] = k;
+
+    srand(seed);
+    for (int r = 0; r < nrand; r++) {
+        // Fisher-Yates forward, matching RidgeFast's shuffle_srand exactly:
+        //   j = i + rand() / (RAND_MAX / (n - i) + 1)
+        // The division-based form (not modulo) avoids low-bit bias and is
+        // what SecAct's original ridge.c uses.
+        for (int i = 0; i < n - 1; i++) {
+            int j = i + rand() / (RAND_MAX / (n - i) + 1);
+            int t = temp[j]; temp[j] = temp[i]; temp[i] = t;
+        }
+        for (int j = 0; j < n; j++) {
+            result_ptr[(size_t)j * nrand + r] = temp[j];
+        }
+    }
+    free(temp);
+    UNPROTECT(1);
+    return result;
+}
+
+
 //----------------------------------------------------------------------------//
 // R Package Registration                                                     //
 //----------------------------------------------------------------------------//
@@ -990,6 +1037,7 @@ static const R_CallMethodDef CallEntries[] = {
     // Core Ridge Functions - Updated with batch_size parameter
     {"ridge_cuda_dense_r",            (DL_FUNC) &ridge_cuda_dense_r,            6},
     {"ridge_cuda_dense_with_perm_r",  (DL_FUNC) &ridge_cuda_dense_with_perm_r,  7},
+    {"build_srand_perm_table_r",      (DL_FUNC) &build_srand_perm_table_r,      3},
     {"ridge_cuda_sparse_r",           (DL_FUNC) &ridge_cuda_sparse_r,           6},
 
     // --- SCALING ENTRIES ---

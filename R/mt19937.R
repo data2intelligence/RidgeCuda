@@ -121,13 +121,16 @@
 #'
 #' @param n Number of samples (array length to shuffle).
 #' @param nrand Number of permutations.
+#' @param seed Integer seed passed to \code{.mt19937_new()} (default 0,
+#'   which GSL remaps to 4357). Used by the alignment pass for
+#'   user-visible permutation variability.
 #' @return Integer matrix (nrand x n), 0-indexed.
 #' @keywords internal
-.gsl_mt19937_perm_table <- function(n, nrand) {
+.gsl_mt19937_perm_table <- function(n, nrand, seed = 0L) {
   MT_MAX <- 4294967295
 
   total <- as.integer(n - 1L) * nrand
-  state <- .mt19937_new(seed = 0)
+  state <- .mt19937_new(seed = as.integer(seed))
   gen   <- .mt19937_generate(state, total)
   vals  <- gen$values
 

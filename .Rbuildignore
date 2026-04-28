@@ -1,0 +1,14 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.git$
+^\.gitignore$
+^\.claude$
+^benchmark$
+^tests/.*\.sbatch$
+^tests/.*\.log$
+^.*\.log$
+^.*\.slurm\.log$
+^src/Makevars$
+^src/.*\.o$
+^src/.*\.so$
+^src/.*\.dll$

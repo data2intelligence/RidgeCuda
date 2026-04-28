@@ -12,7 +12,27 @@ msg() {
     echo "-- $1"
 }
 
-# --- Find R Include Directory --- 
+# --- Platform Gate ---
+# RidgeCuda requires NVIDIA CUDA. NVIDIA dropped macOS CUDA support after CUDA
+# 10.2 (2019, macOS 10.13). Apple Silicon has no NVIDIA path. Fail early with
+# an actionable message rather than letting the CUDA-toolkit search fail.
+OS_NAME=$(uname -s 2>/dev/null)
+if [ "$OS_NAME" = "Darwin" ]; then
+    cat >&2 <<'EOF'
+ERROR: RidgeCuda is not supported on macOS.
+
+NVIDIA discontinued CUDA support on macOS after CUDA 10.2 (2019, macOS 10.13).
+Apple Silicon Macs have no NVIDIA GPU path. RidgeCuda has no CPU fallback.
+
+For the same ridge() / ridge_batch() API on CPU, install the companion package:
+
+  remotes::install_github("data2intelligence/RidgeFast")   # CPU GSL + OpenMP
+
+EOF
+    exit 1
+fi
+
+# --- Find R Include Directory ---
 msg "Detecting R include directory..."
 
 # Determine the R executable path to use

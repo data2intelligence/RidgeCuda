@@ -27,9 +27,10 @@ want:
 
 ## Companion packages
 
-[RidgeFast](https://github.com/psychemistz/RidgeFast) provides the
-same `ridge()` / `ridge_batch()` API on CPU (GSL + OpenMP) and is
-drop-in interchangeable with RidgeCuda.
+[RidgeFast](https://github.com/data2intelligence/RidgeFast) provides
+the same `ridge()` / `ridge_batch()` API on CPU (GSL + OpenMP) and is
+drop-in interchangeable with RidgeCuda. Use it on macOS or any host
+without an NVIDIA GPU.
 
 [SecAct](https://github.com/data2intelligence/SecAct) (secreted
 protein activity inference) is one application that benefits from
@@ -47,15 +48,62 @@ workflow.
   double precision
 - Optional: `rhdf5` for `ridge_batch()` HDF5 input/output
 
+## Platform support
+
+| OS | Status | Notes |
+|---|---|---|
+| Linux + NVIDIA GPU | Supported | Tested on RHEL 8 with CUDA 11.x / 12.x |
+| Windows + NVIDIA GPU | Supported | Requires CUDA Toolkit + Rtools + MSVC Build Tools (see below) |
+| macOS | Not supported | NVIDIA discontinued macOS CUDA after CUDA 10.2 (2019). Use [RidgeFast](https://github.com/data2intelligence/RidgeFast) instead. |
+
 ## Installation
+
+### Linux
 
 ```r
 install.packages(c("remotes", "Matrix"))
 # BiocManager::install("rhdf5")   # optional, for HDF5 streaming
 
 # Install (auto-detects CUDA_HOME; set explicitly if needed)
-remotes::install_github("psychemistz/RidgeCuda")
+remotes::install_github("data2intelligence/RidgeCuda")
 ```
+
+If the configure script can't locate the toolkit, set `CUDA_HOME`
+(e.g. `/usr/local/cuda-12.1`) before running `install_github`.
+
+### Windows
+
+Install the prerequisites once:
+
+1. R (>= 4.0) and **Rtools** matching your R version
+   (https://cran.r-project.org/bin/windows/Rtools/).
+2. **NVIDIA CUDA Toolkit** (>= 11.0)
+   (https://developer.nvidia.com/cuda-toolkit). The installer sets
+   `CUDA_PATH` automatically.
+3. **Microsoft C++ Build Tools** (MSVC `cl.exe`). NVIDIA `nvcc` on
+   Windows requires MSVC as its host compiler — Rtools' MinGW alone is
+   not sufficient for the CUDA translation unit. Install the
+   "Desktop development with C++" workload from
+   https://visualstudio.microsoft.com/downloads/, and ensure
+   `cl.exe` is reachable from a Developer Command Prompt.
+
+Then, from an R session launched out of an environment where both
+Rtools and the MSVC toolchain are visible:
+
+```r
+install.packages(c("remotes", "Matrix"))
+remotes::install_github("data2intelligence/RidgeCuda")
+```
+
+`configure.win` honours `CUDA_HOME` first, then `CUDA_PATH`, then
+searches the default install root. Override the GPU architectures with
+`CUDA_ARCH` if you want a slimmer binary (e.g.
+`Sys.setenv(CUDA_ARCH = "-gencode arch=compute_86,code=sm_86")`).
+
+### macOS
+
+Not supported. Install [RidgeFast](https://github.com/data2intelligence/RidgeFast)
+for the same `ridge()` / `ridge_batch()` API on CPU.
 
 ## Usage
 
@@ -164,7 +212,7 @@ depending on availability (`freen | grep gpu`).
 ```sh
 sinteractive --gres=gpu:v100x:1 --cpus-per-task=8 --mem=16g
 module load CUDA/12.1 gcc/11.3.0 R/4.3.2
-R -e 'remotes::install_github("psychemistz/RidgeCuda")'
+R -e 'remotes::install_github("data2intelligence/RidgeCuda")'
 ```
 
 ## Troubleshooting

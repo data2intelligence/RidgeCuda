@@ -120,6 +120,47 @@ __global__ void calculateAbsValues(const double *input, double *output, size_t n
     }
 }
 
+/* In-flight column normalization correction for the sparse path.
+ *
+ * Applies the SecActpy convention:
+ *   col_center=True, col_scale=True  : β = (β_raw - c⊗μ) / σ
+ *   col_center=True, col_scale=False : β = β_raw - c⊗μ
+ *   col_center=False, col_scale=True : β = β_raw / σ
+ * where c = T·1ₙ (sum of T columns, length p), μ = column means of Y
+ * (length m), σ = column stds of Y (length m). The correction depends
+ * only on T, μ, σ — invariant under row-permutation of Y — so the same
+ * formula applies to both β_obs and every β_perm.
+ *
+ * d_beta is column-major (p × m_batch). Pass NULL for d_mu or d_sigma
+ * to skip that part of the correction (zero-overhead dispatch).
+ */
+__global__ void applyColCorrection(double *d_beta,
+                                   const double *d_c,        /* size p     */
+                                   const double *d_mu,       /* size m or NULL */
+                                   const double *d_sigma,    /* size m or NULL */
+                                   int p, int cols_in_batch, int start_col) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = p * cols_in_batch;
+    if (idx >= total) return;
+    int j_local = idx / p;
+    int i = idx - j_local * p;
+    int j = j_local + start_col;
+    double v = d_beta[idx];
+    if (d_mu != nullptr) {
+        v -= d_c[i] * d_mu[j];
+    }
+    if (d_sigma != nullptr) {
+        double s = d_sigma[j];
+        v /= (s > 0.0 ? s : 1.0);
+    }
+    d_beta[idx] = v;
+}
+
+__global__ void fillOnesKernel(double *arr, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) arr[idx] = 1.0;
+}
+
 __global__ void permuteColumnsKernel(const double *input, double *output,
                                     const int *indices, int rows, int cols) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -1161,8 +1202,14 @@ int ridge_cuda_sparse(
     double *se,     /* n_features x n_samples */
     double *zscore, /* n_features x n_samples */
     double *pvalue, /* n_features x n_samples */
-    const int *perm_table /* n_rand x n_genes, row-major, 0-indexed.
-                              NULL = fisher_yates fallback. */
+    const int *perm_table, /* n_rand x n_genes, row-major, 0-indexed.
+                               NULL = fisher_yates fallback. */
+    const double *col_mu,    /* size n_samples, OR NULL → no column-center.
+                                 SecActpy convention: subtracts c⊗μ where
+                                 c = T·1ₙ, applied to every β (obs + perm). */
+    const double *col_sigma  /* size n_samples, OR NULL → no column-scale.
+                                 SecActpy convention: divides β by σ
+                                 (post-multiplied), applied to every β. */
 ) {
     // --- Input Validation ---
     if (!cuda_initialized) { fprintf(stderr, "Error: CUDA not initialized. Call ridge_cuda_init() first.\n"); return -10; }
@@ -1200,6 +1247,12 @@ int ridge_cuda_sparse(
     double *d_abs_beta_obs = NULL, *d_sum_b = NULL, *d_sum_b2 = NULL, *d_count_ge = NULL;
     int *d_indices = NULL;
     void *d_cusparse_buffer = NULL; size_t cusparse_buffer_size = 0;
+    /* In-flight col-normalization buffers (allocated only when needed) */
+    double *d_col_c = NULL;        /* T·1ₙ on device, length p */
+    double *d_col_mu = NULL;       /* upload of col_mu, length n_samples */
+    double *d_col_sigma = NULL;    /* upload of col_sigma, length n_samples */
+    double *d_ones_n = NULL;       /* helper, length n */
+    bool needs_correction = (col_mu != NULL) || (col_sigma != NULL);
     
     // Host buffers for accumulation
     int *h_indices = NULL; // Host permutation indices
@@ -1326,7 +1379,35 @@ int ridge_cuda_sparse(
     // 6a. Compute T_transpose = T^T (n x p)
     // Input T is (p x n), lda=p. Output T_transpose is (n x p), ldc=n.
     CHECK_CUBLAS(cublasDgeam(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, p, &alpha, d_T, p, &beta_zero, NULL, n, d_T_transpose, n));
-    
+
+    // 6b. In-flight col-normalization setup (only if caller passed col_mu
+    // or col_sigma). Compute c = T · 1ₙ once on GPU; upload μ, σ from
+    // host. The per-perm correction is applied inside the loop below
+    // and after the observed-β cusparseSpMM.
+    if (needs_correction) {
+        CHECK_CUDA(cudaMallocAsync((void**)&d_col_c,   (size_t)p * sizeof(double), stream));
+        CHECK_CUDA(cudaMallocAsync((void**)&d_ones_n, (size_t)n * sizeof(double), stream));
+        int ones_blocks = (n + compute_block_size - 1) / compute_block_size;
+        fillOnesKernel<<<ones_blocks, compute_block_size, 0, stream>>>(d_ones_n, n);
+        CHECK_CUDA(cudaGetLastError());
+        // c = T (p×n) · 1ₙ  → length p. T is column-major (p rows, n cols, lda=p).
+        CHECK_CUBLAS(cublasDgemv(cublas_handle, CUBLAS_OP_N, p, n,
+                                 &alpha, d_T, p, d_ones_n, 1,
+                                 &beta_zero, d_col_c, 1));
+        if (col_mu != NULL) {
+            CHECK_CUDA(cudaMallocAsync((void**)&d_col_mu, (size_t)m * sizeof(double), stream));
+            CHECK_CUDA(cudaMemcpyAsync(d_col_mu, col_mu,
+                                       (size_t)m * sizeof(double),
+                                       cudaMemcpyHostToDevice, stream));
+        }
+        if (col_sigma != NULL) {
+            CHECK_CUDA(cudaMallocAsync((void**)&d_col_sigma, (size_t)m * sizeof(double), stream));
+            CHECK_CUDA(cudaMemcpyAsync(d_col_sigma, col_sigma,
+                                       (size_t)m * sizeof(double),
+                                       cudaMemcpyHostToDevice, stream));
+        }
+    }
+
     // --- Set up for SpMM buffer allocation ---
     // We only need to do this once since we're using the same dimensions for all batches
     CHECK_CUSPARSE(cusparseSpMM_bufferSize(cusparse_handle, CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
@@ -1408,10 +1489,22 @@ int ridge_cuda_sparse(
         // 6c. Compute beta_batch = (beta_transpose_batch)^T ( (cols_in_batch x p)^T = (p x cols_in_batch) )
         // Input beta_transpose is (cols_in_batch x p), lda=cols_in_batch. Output beta_batch is (p x cols_in_batch), ldc=p.
         CHECK_CUBLAS(cublasDgeam(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, p, cols_in_batch, &alpha, d_beta_transpose, cols_in_batch, &beta_zero, NULL, p, d_beta_batch, p));
-        
+
+        // 6d. Apply in-flight col-normalization correction to observed β
+        // (β_obs = (β_raw - c⊗μ) / σ). The same correction is applied
+        // to every β_perm inside the loop below — kept consistent so
+        // SE / z-score / pvalue all reflect the normalized statistic.
+        if (needs_correction) {
+            int corr_blocks = ((size_t)p * cols_in_batch + compute_block_size - 1) / compute_block_size;
+            applyColCorrection<<<corr_blocks, compute_block_size, 0, stream>>>(
+                d_beta_batch, d_col_c, d_col_mu, d_col_sigma,
+                p, cols_in_batch, start_col);
+            CHECK_CUDA(cudaGetLastError());
+        }
+
         // --- Copy batch beta to host ---
-        CHECK_CUDA(cudaMemcpyAsync(beta + (size_t)start_col * p, d_beta_batch, 
-                                  (size_t)p * cols_in_batch * sizeof(double), 
+        CHECK_CUDA(cudaMemcpyAsync(beta + (size_t)start_col * p, d_beta_batch,
+                                  (size_t)p * cols_in_batch * sizeof(double),
                                   cudaMemcpyDeviceToHost, stream));
         
         // --- Permutation Test for current batch ---
@@ -1459,7 +1552,17 @@ int ridge_cuda_sparse(
             
             // Compute beta_perm = (beta_perm_transpose)^T ( (cols_in_batch x p)^T = (p x cols_in_batch) )
             CHECK_CUBLAS(cublasDgeam(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, p, cols_in_batch, &alpha, d_beta_perm_transpose, cols_in_batch, &beta_zero, NULL, p, d_beta_perm, p));
-            
+
+            // Apply the same in-flight correction to β_perm so |β_perm|
+            // counts in the pvalue use the SAME statistic as β_obs.
+            if (needs_correction) {
+                int corr_blocks = ((size_t)p * cols_in_batch + compute_block_size - 1) / compute_block_size;
+                applyColCorrection<<<corr_blocks, compute_block_size, 0, stream>>>(
+                    d_beta_perm, d_col_c, d_col_mu, d_col_sigma,
+                    p, cols_in_batch, start_col);
+                CHECK_CUDA(cudaGetLastError());
+            }
+
             // Update permutation statistics on GPU
             int stats_num_blocks = ((size_t)p * cols_in_batch + compute_block_size - 1) / compute_block_size;
             updatePermutationStats<<<stats_num_blocks, compute_block_size, 0, stream>>>(
@@ -1548,6 +1651,8 @@ cleanup:
     cudaFree(d_T_transpose_perm); cudaFree(d_beta_perm); cudaFree(d_beta_perm_transpose);
     cudaFree(d_indices); cudaFree(d_abs_beta_obs); cudaFree(d_sum_b);
     cudaFree(d_sum_b2); cudaFree(d_count_ge);
+    /* In-flight col-normalization buffers (NULL-safe via cudaFree) */
+    cudaFree(d_col_c); cudaFree(d_col_mu); cudaFree(d_col_sigma); cudaFree(d_ones_n);
 
     // Free host memory
     if (h_indices != NULL) free(h_indices);

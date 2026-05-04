@@ -173,11 +173,16 @@ int ridge_cuda_sparse(
     double *se,
     double *zscore,
     double *pvalue,
-    const int *perm_table  /* Optional: n_rand x n_genes, row-major.
+    const int *perm_table, /* Optional: n_rand x n_genes, row-major.
                               NULL = fisher_yates (platform rand).
                               Non-NULL = use provided permutations
                               for cross-backend bitwise reproducibility,
                               matching the dense path's perm-table seam. */
+    const double *col_mu,    /* Optional: column means of Y, length n_samples.
+                                NULL = no centering. SecActpy convention:
+                                β = (β_raw - c⊗μ) / σ where c = T·1ₙ. */
+    const double *col_sigma  /* Optional: column stds of Y, length n_samples.
+                                NULL = no scaling. */
 );
 
 /**

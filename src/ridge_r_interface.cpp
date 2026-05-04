@@ -414,13 +414,14 @@ SEXP ridge_cuda_sparse_r(SEXP X_r, SEXP Y_r, SEXP lambda_r, SEXP n_rand_r, SEXP 
     }
 
     // --- Call the CUDA Implementation ---
-    // No perm_table here — that's the perm-aware variant
-    // (ridge_cuda_sparse_with_perm_r, below).
+    // No perm_table or col-normalization here — that's the perm-aware
+    // variant (ridge_cuda_sparse_with_perm_r, below).
     int status = ridge_cuda_sparse(X_ptr, n_genes, n_features,
                                 Y_vals_ptr, Y_row_ind_r, Y_col_ptr_r,
                                 n_samples, nnz, lambda_val, n_rand, batch_size,
                                 beta_ptr, se_ptr, zscore_ptr, pvalue_ptr,
-                                NULL /* perm_table */);
+                                NULL /* perm_table */,
+                                NULL /* col_mu */, NULL /* col_sigma */);
 
     SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r,
                                      NA_REAL, status, ridge_status_msg(status));
@@ -1062,12 +1063,114 @@ SEXP ridge_cuda_sparse_with_perm_r(SEXP X_r, SEXP Y_r, SEXP lambda_r,
                                 Y_vals_ptr, Y_row_ind_r, Y_col_ptr_r,
                                 n_samples, nnz, lambda_val, n_rand, batch_size,
                                 beta_ptr, se_ptr, zscore_ptr, pvalue_ptr,
-                                perm_rowmajor);
+                                perm_rowmajor,
+                                NULL /* col_mu */, NULL /* col_sigma */);
     free(perm_rowmajor);
 
     SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r,
                                      NA_REAL, status, ridge_status_msg(status));
     UNPROTECT(8);  // 4 dgCMatrix slots + 4 output matrices
+    return result;
+}
+
+
+/**
+ * @brief R interface: sparse ridge with perm table + in-flight col-norm.
+ *
+ * Like ridge_cuda_sparse_with_perm_r but additionally accepts caller-
+ * supplied column means (col_mu_r) and column stds (col_sigma_r) as
+ * numeric vectors of length n_samples (or R NULL to skip that part of
+ * the correction). Routes to the cusparseSpMM kernel which applies
+ *   β = (β_raw - c⊗μ) / σ
+ * inside the per-perm loop, giving correct β / SE / z / pvalue for
+ * the column-normalized statistic without ever densifying Y.
+ */
+SEXP ridge_cuda_sparse_with_perm_norm_r(SEXP X_r, SEXP Y_r, SEXP lambda_r,
+                                         SEXP n_rand_r, SEXP batch_size_r,
+                                         SEXP device_id_r, SEXP perm_table_r,
+                                         SEXP col_mu_r, SEXP col_sigma_r) {
+    if (!isMatrix(X_r) || !isReal(X_r)) error("X must be a numeric matrix");
+    if (!inherits(Y_r, "dgCMatrix")) error("Y must be a dgCMatrix object");
+    if (!isReal(lambda_r) || length(lambda_r) != 1) error("lambda must be scalar numeric");
+    if (!isInteger(n_rand_r) || length(n_rand_r) != 1) error("n_rand must be scalar integer");
+    if (!isInteger(batch_size_r) || length(batch_size_r) != 1) error("batch_size must be scalar integer");
+    if (!isInteger(device_id_r) || length(device_id_r) != 1) error("device_id must be scalar integer");
+    if (!isMatrix(perm_table_r) || !isInteger(perm_table_r)) error("perm_table must be integer matrix");
+    int has_mu    = !isNull(col_mu_r);
+    int has_sigma = !isNull(col_sigma_r);
+    if (has_mu    && !isReal(col_mu_r))    error("col_mu must be a numeric vector or NULL");
+    if (has_sigma && !isReal(col_sigma_r)) error("col_sigma must be a numeric vector or NULL");
+
+    SEXP y_vals_sexp    = PROTECT(R_do_slot(Y_r, install("x")));
+    SEXP y_col_ptr_sexp = PROTECT(R_do_slot(Y_r, install("p")));
+    SEXP y_row_ind_sexp = PROTECT(R_do_slot(Y_r, install("i")));
+    SEXP y_dims_sexp    = PROTECT(R_do_slot(Y_r, install("Dim")));
+
+    SEXP dim_X = getAttrib(X_r, R_DimSymbol);
+    SEXP dim_P = getAttrib(perm_table_r, R_DimSymbol);
+    int n_genes    = INTEGER(dim_X)[0];
+    int n_features = INTEGER(dim_X)[1];
+    int n_samples  = INTEGER(y_dims_sexp)[1];
+    int nnz        = length(y_vals_sexp);
+    if (INTEGER(y_dims_sexp)[0] != n_genes) {
+        UNPROTECT(4); error("X and Y must have same number of rows");
+    }
+    if (has_mu    && length(col_mu_r)    != n_samples) {
+        UNPROTECT(4); error("col_mu length must equal n_samples (%d)", n_samples);
+    }
+    if (has_sigma && length(col_sigma_r) != n_samples) {
+        UNPROTECT(4); error("col_sigma length must equal n_samples (%d)", n_samples);
+    }
+
+    double lambda_val = REAL(lambda_r)[0];
+    int n_rand     = INTEGER(n_rand_r)[0];
+    int batch_size = INTEGER(batch_size_r)[0];
+    int device_id  = asInteger(device_id_r);
+    if (lambda_val < 0.0) { UNPROTECT(4); error("lambda must be non-negative"); }
+    if (n_rand <= 0)      { UNPROTECT(4); error("n_rand must be positive"); }
+    if (INTEGER(dim_P)[0] != n_rand)   { UNPROTECT(4); error("perm_table must have n_rand rows"); }
+    if (INTEGER(dim_P)[1] != n_genes)  { UNPROTECT(4); error("perm_table must have n_genes columns"); }
+    if (batch_size < 0) batch_size = 0;
+
+    int init_status = ridge_cuda_init(device_id);
+    if (init_status != 0) { UNPROTECT(4); error("CUDA init failed (%d)", init_status); }
+
+    /* Transpose perm_table from R column-major to C row-major */
+    int* perm_rowmajor = (int*)malloc((size_t)n_rand * n_genes * sizeof(int));
+    if (!perm_rowmajor) { UNPROTECT(4); error("perm buffer alloc failed"); }
+    int* perm_cm = INTEGER(perm_table_r);
+    for (int r = 0; r < n_rand; r++) {
+        for (int j = 0; j < n_genes; j++) {
+            perm_rowmajor[(size_t)r * n_genes + j] = perm_cm[(size_t)j * n_rand + r];
+        }
+    }
+
+    SEXP beta_r   = PROTECT(allocMatrix(REALSXP, n_features, n_samples));
+    SEXP se_r     = PROTECT(allocMatrix(REALSXP, n_features, n_samples));
+    SEXP zscore_r = PROTECT(allocMatrix(REALSXP, n_features, n_samples));
+    SEXP pvalue_r = PROTECT(allocMatrix(REALSXP, n_features, n_samples));
+    double* beta_ptr   = REAL(beta_r);
+    double* se_ptr     = REAL(se_r);
+    double* zscore_ptr = REAL(zscore_r);
+    double* pvalue_ptr = REAL(pvalue_r);
+    size_t output_size = (size_t)n_features * n_samples;
+    for (size_t i = 0; i < output_size; i++) {
+        beta_ptr[i] = NA_REAL; se_ptr[i] = NA_REAL;
+        zscore_ptr[i] = NA_REAL; pvalue_ptr[i] = NA_REAL;
+    }
+
+    int status = ridge_cuda_sparse(REAL(X_r), n_genes, n_features,
+                                   REAL(y_vals_sexp), INTEGER(y_row_ind_sexp), INTEGER(y_col_ptr_sexp),
+                                   n_samples, nnz, lambda_val, n_rand, batch_size,
+                                   beta_ptr, se_ptr, zscore_ptr, pvalue_ptr,
+                                   perm_rowmajor,
+                                   has_mu    ? REAL(col_mu_r)    : NULL,
+                                   has_sigma ? REAL(col_sigma_r) : NULL);
+    free(perm_rowmajor);
+
+    SEXP result = create_result_list(beta_r, se_r, zscore_r, pvalue_r,
+                                     NA_REAL, status, ridge_status_msg(status));
+    UNPROTECT(8);
     return result;
 }
 
@@ -1136,6 +1239,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"build_srand_perm_table_r",      (DL_FUNC) &build_srand_perm_table_r,      3},
     {"ridge_cuda_sparse_r",           (DL_FUNC) &ridge_cuda_sparse_r,           6},
     {"ridge_cuda_sparse_with_perm_r", (DL_FUNC) &ridge_cuda_sparse_with_perm_r, 7},
+    {"ridge_cuda_sparse_with_perm_norm_r", (DL_FUNC) &ridge_cuda_sparse_with_perm_norm_r, 9},
 
     // --- SCALING ENTRIES ---
     {"ridge_cuda_scale_dense_matrix_r",  (DL_FUNC) &ridge_cuda_scale_dense_matrix_r, 2},

@@ -1156,11 +1156,13 @@ int ridge_cuda_sparse(
     const double *Y_vals, const int *Y_row_indices, const int *Y_col_pointers,
     int n_samples, int nnz,
     double lambda_val, int n_rand, // n_rand must be > 0
-    int batch_size,   // New parameter: columns per batch, 0 means process all at once
+    int batch_size,   // columns per batch, 0 means process all at once
     double *beta,   /* n_features x n_samples */
     double *se,     /* n_features x n_samples */
     double *zscore, /* n_features x n_samples */
-    double *pvalue  /* n_features x n_samples */
+    double *pvalue, /* n_features x n_samples */
+    const int *perm_table /* n_rand x n_genes, row-major, 0-indexed.
+                              NULL = fisher_yates fallback. */
 ) {
     // --- Input Validation ---
     if (!cuda_initialized) { fprintf(stderr, "Error: CUDA not initialized. Call ridge_cuda_init() first.\n"); return -10; }
@@ -1426,26 +1428,33 @@ int ridge_cuda_sparse(
         
         // Permutation loop
         for (int r = 0; r < n_rand; r++) {
-            // Generate permutation indices on host
-            for (int i = 0; i < n; i++) h_indices[i] = i;
-            fisher_yates_shuffle(h_indices, n);
+            if (perm_table != NULL) {
+                // Caller-supplied permutation (e.g. MT19937 from R side).
+                // Preserves bitwise parity with CPU backends and the
+                // dense GPU path.
+                memcpy(h_indices, perm_table + (size_t)r * n, n * sizeof(int));
+            } else {
+                // Fallback: in-process Fisher-Yates with C stdlib rand().
+                for (int i = 0; i < n; i++) h_indices[i] = i;
+                fisher_yates_shuffle(h_indices, n);
+            }
             CHECK_CUDA(cudaMemcpyAsync(d_indices, h_indices, n * sizeof(int), cudaMemcpyHostToDevice, stream));
-            
+
             // Permute rows of T_transpose (n x p)
             permute_T_transpose_rows_cuda(d_T_transpose_perm, d_T_transpose, d_indices, n, p);
             CHECK_CUDA(cudaGetLastError());
-            
+
             // Recalculate beta_perm = (Y_batch^T * T_transpose_perm)^T
-            CHECK_CUSPARSE(cusparseSpMM(cusparse_handle, 
-                                       CUSPARSE_OPERATION_TRANSPOSE, 
+            CHECK_CUSPARSE(cusparseSpMM(cusparse_handle,
+                                       CUSPARSE_OPERATION_TRANSPOSE,
                                        CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                       &alpha, 
-                                       Y_sparse_csc_batch_view, 
-                                       T_transpose_perm_dense, 
-                                       &beta_zero, 
+                                       &alpha,
+                                       Y_sparse_csc_batch_view,
+                                       T_transpose_perm_dense,
+                                       &beta_zero,
                                        beta_perm_transpose_dense,
-                                       CUDA_R_64F, 
-                                       CUSPARSE_SPMM_ALG_DEFAULT, 
+                                       CUDA_R_64F,
+                                       CUSPARSE_SPMM_ALG_DEFAULT,
                                        d_cusparse_buffer));
             
             // Compute beta_perm = (beta_perm_transpose)^T ( (cols_in_batch x p)^T = (p x cols_in_batch) )

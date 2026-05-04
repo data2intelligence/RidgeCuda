@@ -172,7 +172,12 @@ int ridge_cuda_sparse(
     double *beta,
     double *se,
     double *zscore,
-    double *pvalue
+    double *pvalue,
+    const int *perm_table  /* Optional: n_rand x n_genes, row-major.
+                              NULL = fisher_yates (platform rand).
+                              Non-NULL = use provided permutations
+                              for cross-backend bitwise reproducibility,
+                              matching the dense path's perm-table seam. */
 );
 
 /**

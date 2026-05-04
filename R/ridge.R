@@ -36,12 +36,24 @@ ridge <- function(X, Y, lambda = 5e+05, nrand = 1000L,
                   ncores = 1L, rng_method = "srand", seed = 0L,
                   device_id = 0L) {
   if (!is.matrix(X)) X <- as.matrix(X)
-  # Densify any sparse input (dgCMatrix, etc.) so we always go through the
-  # deterministic host-perm-table path. Matches RidgeFast / RidgeR behavior
-  # for API parity — true in-device sparse math is a future optimization
-  # tracked separately. SecActpy remains the in-memory sparse specialist.
-  if (!is.matrix(Y)) Y <- as.matrix(Y)
-  if (!is.numeric(X) || !is.numeric(Y)) stop("X and Y must be numeric.")
+  # Y may be a dense matrix or a dgCMatrix (CSC sparse). The two cases
+  # route to different CUDA kernels:
+  #   dense    → ridge_cuda_dense_with_perm_r   (cublasDgemm path)
+  #   sparse   → ridge_cuda_sparse_with_perm_r  (cusparseSpMM path)
+  # Both consume the same caller-supplied perm table for cross-backend
+  # bitwise reproducibility. No host-side densify of dgCMatrix anymore —
+  # that was a temporary "API parity" fallback before the perm-aware
+  # sparse path landed.
+  Y_is_sparse <- inherits(Y, "dgCMatrix") || inherits(Y, "CsparseMatrix") ||
+                 inherits(Y, "Matrix")
+  if (!Y_is_sparse && !is.matrix(Y)) Y <- as.matrix(Y)
+  if (Y_is_sparse) {
+    if (!inherits(Y, "dgCMatrix")) Y <- methods::as(Y, "CsparseMatrix")
+    if (!inherits(Y, "dgCMatrix")) stop("Sparse Y must coerce to dgCMatrix.")
+  } else if (!is.numeric(Y)) {
+    stop("Y must be numeric (dense matrix or dgCMatrix).")
+  }
+  if (!is.numeric(X)) stop("X must be numeric.")
   if (nrow(X) != nrow(Y)) stop("nrow(X) must equal nrow(Y).")
 
   rng_norm <- match.arg(tolower(rng_method), c("mt19937", "srand"))
@@ -61,7 +73,7 @@ ridge <- function(X, Y, lambda = 5e+05, nrand = 1000L,
     out
   }
 
-  storage.mode(Y) <- "double"
+  if (!Y_is_sparse) storage.mode(Y) <- "double"
   cuda_status <- check_cuda_available(device_id = as.integer(device_id))
   if (!cuda_status$available) {
     stop("CUDA initialization failed: ", cuda_status$message)
@@ -84,9 +96,16 @@ ridge <- function(X, Y, lambda = 5e+05, nrand = 1000L,
     inv_table[r, fwd_table[r, ] + 1L] <- col_ids_0
   }
   storage.mode(inv_table) <- "integer"
-  res <- .Call("ridge_cuda_dense_with_perm_r",
-               X, Y, as.double(lambda), as.integer(nrand),
-               0L, as.integer(device_id), inv_table,
-               PACKAGE = "RidgeCuda")
+  res <- if (Y_is_sparse) {
+    .Call("ridge_cuda_sparse_with_perm_r",
+          X, Y, as.double(lambda), as.integer(nrand),
+          0L, as.integer(device_id), inv_table,
+          PACKAGE = "RidgeCuda")
+  } else {
+    .Call("ridge_cuda_dense_with_perm_r",
+          X, Y, as.double(lambda), as.integer(nrand),
+          0L, as.integer(device_id), inv_table,
+          PACKAGE = "RidgeCuda")
+  }
   wrap(res)
 }

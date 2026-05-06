@@ -919,26 +919,69 @@ int ridge_cuda_dense(
         batch_size = n_samples;
     }
     int n_batches = (n_samples + batch_size - 1) / batch_size; // Ceiling division
-    printf("Processing %d samples in %d batches of up to %d samples each\n", 
+    printf("Processing %d samples in %d batches of up to %d samples each\n",
            n_samples, n_batches, batch_size);
+
+    // --- Memory pressure guard ---
+    // Estimate worst-case device memory and fail fast with a clear message
+    // if the workload won't fit. Without this check the kernel attempts
+    // its allocations one by one; CHECK_CUDA returns 1 when it OOMs
+    // mid-allocation, but the partial state plus the unhelpful "out of
+    // memory" message at a random line number make the failure mode
+    // confusing (caller sees a fast bogus elapsed_sec because the kernel
+    // exits before doing real work).
+    {
+        size_t free_bytes = 0, total_bytes = 0;
+        if (cudaMemGetInfo(&free_bytes, &total_bytes) == cudaSuccess) {
+            const size_t dbl = sizeof(double);
+            // dense path allocations (rough upper bound). Use the
+            // function args directly since p / n are not yet defined as
+            // locals at this point in the function.
+            size_t need = dbl * (
+                  3 * (size_t)n_genes * n_features    // X, X_transpose, T
+                + 2 * (size_t)n_features * n_features // XtX, workspace
+                + (size_t)n_genes * batch_size        // Y_batch
+                + 6 * (size_t)n_features * batch_size // beta_batch + 5 stats
+                + (size_t)n_features * n_genes        // T_permuted
+            ) + 4 * (size_t)n_genes;                  // d_indices (int)
+            size_t budget = (size_t)(free_bytes * 0.90);
+            if (need > budget) {
+                size_t fixed = dbl * (3 * (size_t)n_genes * n_features
+                                     + 2 * (size_t)n_features * n_features
+                                     + (size_t)n_features * n_genes);
+                size_t per_col = dbl * ((size_t)n_genes + 7 * (size_t)n_features);
+                int suggested_batch = (int)((free_bytes * 0.85 - fixed) / per_col);
+                if (suggested_batch < 1) suggested_batch = 1;
+                fprintf(stderr,
+                    "Error: ridge_cuda_dense workload requires ~%.1f GB GPU "
+                    "memory (n=%d p=%d m=%d batch=%d) but only %.1f GB free "
+                    "of %.1f GB total on device. Use batch_size > 0 "
+                    "(e.g., batch_size=%d) or a GPU with more VRAM.\n",
+                    need / 1.0e9, n_genes, n_features, n_samples, batch_size,
+                    free_bytes / 1.0e9, total_bytes / 1.0e9,
+                    suggested_batch);
+                return -100; // distinct from CHECK_* codes 1-5
+            }
+        }
+    }
 
     // --- Variable Declaration ---
     double *d_X = NULL, *d_X_transpose = NULL, *d_XtX = NULL;
     double *d_T = NULL, *d_workspace = NULL;
     int *d_info = NULL;
-    
+
     // Batch-specific variables
     double *d_Y_batch = NULL, *d_beta_batch = NULL;
     double *d_T_permuted = NULL, *d_beta_perm = NULL, *d_abs_beta_obs = NULL;
     double *d_sum_b = NULL, *d_sum_b2 = NULL, *d_count_ge = NULL;
     int *d_indices = NULL;
     int *h_indices = NULL; // Host permutation indices
-    
+
     // Per-batch accumulation buffers
     double *h_sum_b = NULL, *h_sum_b2 = NULL, *h_count_ge = NULL;
     double n_rand_d = (double)n_rand; // Move these declarations up before any goto
     double n_rand_plus_1 = (double)(n_rand + 1);
-    
+
     int exit_status = 0;
     double alpha = 1.0, beta_zero = 0.0;
     int compute_block_size = 256;
@@ -1227,14 +1270,46 @@ int ridge_cuda_sparse(
         batch_size = n_samples;
     }
     int n_batches = (n_samples + batch_size - 1) / batch_size; // Ceiling division
-    printf("Processing %d samples in %d batches of up to %d samples each\n", 
+    printf("Processing %d samples in %d batches of up to %d samples each\n",
            n_samples, n_batches, batch_size);
+
+    // --- Memory pressure guard (sparse path) ---
+    // Same fail-fast pattern as the dense path. Sparse path's worst-case
+    // memory is dominated by T_transpose (n*p), Y CSR slices on device
+    // (data + indices + indptr), and the per-batch β workspaces. cusparse
+    // SpMM also allocates its own internal buffer (cusparseSpMM_bufferSize
+    // returns it later, so we approximate with 1 GB headroom).
+    {
+        size_t free_bytes = 0, total_bytes = 0;
+        if (cudaMemGetInfo(&free_bytes, &total_bytes) == cudaSuccess) {
+            const size_t dbl = sizeof(double);
+            const size_t i32 = sizeof(int);
+            size_t need =
+                  dbl * (3 * (size_t)n_genes * n_features      // X, T, T_transpose
+                       + 2 * (size_t)n_features * n_features   // XtX, workspace
+                       + (size_t)n_genes * n_features          // T_transpose_perm
+                       + 5 * (size_t)n_features * batch_size)  // beta workspaces
+                + dbl * (size_t)nnz                            // Y_vals
+                + i32 * ((size_t)nnz + (size_t)n_samples + 1)  // indices, indptr
+                + (size_t)1 * 1024 * 1024 * 1024;              // 1 GB cusparse headroom
+            size_t budget = (size_t)(free_bytes * 0.90);
+            if (need > budget) {
+                fprintf(stderr,
+                    "Error: ridge_cuda_sparse workload requires ~%.1f GB GPU "
+                    "memory (n=%d p=%d m=%d nnz=%d batch=%d) but only %.1f GB "
+                    "free of %.1f GB total. Use batch_size > 0 or a larger GPU.\n",
+                    need / 1.0e9, n_genes, n_features, n_samples, nnz,
+                    batch_size, free_bytes / 1.0e9, total_bytes / 1.0e9);
+                return -100;
+            }
+        }
+    }
 
     // --- Variable Declaration ---
     double *d_X = NULL, *d_XtX = NULL, *d_X_transpose = NULL, *d_T = NULL;
     double *d_beta = NULL, *d_workspace = NULL;
     int *d_info = NULL;
-    
+
     // Sparse Y structures
     double *d_Y_vals = NULL; 
     int *d_Y_row_indices = NULL, *d_Y_col_pointers = NULL;

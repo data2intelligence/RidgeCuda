@@ -107,5 +107,20 @@ ridge <- function(X, Y, lambda = 5e+05, nrand = 1000L,
           0L, as.integer(device_id), inv_table,
           PACKAGE = "RidgeCuda")
   }
+  # Propagate kernel-side status: ridge_cuda_dense / ridge_cuda_sparse
+  # return non-zero on CUDA / cuBLAS / cuSOLVER / cuSPARSE / curand
+  # errors (codes 1-5; see CHECK_CUDA / CHECK_CUBLAS macros in
+  # src/ridge_cuda.cu). The C interface fills NA_REAL into beta/se/z/p
+  # on failure but doesn't error out; without this check the caller
+  # would silently receive an all-NA result (and elapsed_sec would
+  # report time-to-fail as if it were a successful measurement).
+  status <- res$status
+  if (!is.null(status) && length(status) == 1L && !is.na(status) && status != 0L) {
+    # Status message is stored as an attribute on the result list (see
+    # create_result_list in ridge_r_interface.cpp), not a list element.
+    msg <- attr(res, "message")
+    if (is.null(msg)) msg <- "unknown CUDA error"
+    stop(sprintf("RidgeCuda kernel failed (status=%d): %s", status, msg))
+  }
   wrap(res)
 }

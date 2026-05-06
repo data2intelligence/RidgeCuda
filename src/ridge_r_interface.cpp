@@ -28,6 +28,7 @@ static const char* ridge_status_msg(int code) {
         case -12: return "Invalid lambda value";
         case -13: return "NULL pointer provided to C function";
         case -14: return "Invalid n_rand value (must be > 0)";
+        case -100: return "Insufficient GPU memory for workload (memory-pressure guard fail-fast)";
         case 1:   return "General CUDA Runtime Error";
         case 2:   return "cuBLAS Error";
         case 3:   return "cuSOLVER Error";

@@ -1184,6 +1184,64 @@ SEXP ridge_cuda_sparse_with_perm_norm_r(SEXP X_r, SEXP Y_r, SEXP lambda_r,
  * in either package. Returns (nrand x n) integer matrix, 0-indexed,
  * column-major per R convention.
  */
+/**
+ * @brief In-place column z-score for a numeric matrix (R copy-on-modify
+ *        bypass).
+ *
+ * Equivalent to:
+ *   mu    <- matrixStats::colMeans2(Y)
+ *   sigma <- matrixStats::colSds(Y)        # sample sd, ddof = 1
+ *   sigma[sigma == 0] <- 1
+ *   for (j in seq_along(mu)) Y[, j] <- (Y[, j] - mu[j]) / sigma[j]
+ *
+ * but operates directly on the SEXP's REAL data without R's copy-on-
+ * modify firing on the first column-write — which on a 14k×100k double
+ * matrix means saving an ~11 GB transient that the R-level for-loop
+ * inevitably allocates the first time it touches Y[, j] (because Y's
+ * NAMED >= 1 inside any function body it's passed to).
+ *
+ * MUTATES the matrix passed in. Only safe when the caller knows Y is
+ * not shared elsewhere (typical case: freshly loaded inside a function
+ * scope, e.g. Y <- h5read(...); col_zscore_inplace(Y)).
+ */
+SEXP col_zscore_inplace_r(SEXP Y_r) {
+    if (!isMatrix(Y_r) || !isReal(Y_r))
+        error("Y must be a numeric matrix");
+    SEXP dim_r = getAttrib(Y_r, R_DimSymbol);
+    int n = INTEGER(dim_r)[0];  // rows
+    int m = INTEGER(dim_r)[1];  // cols
+    if (n < 2) {
+        warning("col_zscore_inplace_r: n<2, sd undefined; returning Y unchanged");
+        return Y_r;
+    }
+    double *y = REAL(Y_r);  // R matrices are column-major: y[i + j*n]
+    const double n_d = (double)n;
+    const double n_minus_1 = (double)(n - 1);
+
+    for (int j = 0; j < m; j++) {
+        double *col = y + (size_t)j * (size_t)n;
+        // Two-pass: mean first, then sample variance via deviations
+        // (avoids catastrophic cancellation that the naïve
+        // E[X²] - (E[X])² formula introduces at large n).
+        double sum = 0.0;
+        for (int i = 0; i < n; i++) sum += col[i];
+        const double mu = sum / n_d;
+        double ss = 0.0;
+        for (int i = 0; i < n; i++) {
+            const double d = col[i] - mu;
+            ss += d * d;
+        }
+        double sigma = sqrt(ss / n_minus_1);
+        if (sigma == 0.0) sigma = 1.0;  // match colSds convention
+        const double inv_sigma = 1.0 / sigma;
+        for (int i = 0; i < n; i++) {
+            col[i] = (col[i] - mu) * inv_sigma;
+        }
+    }
+    return Y_r;
+}
+
+
 SEXP build_srand_perm_table_r(SEXP n_r, SEXP n_rand_r, SEXP seed_r) {
     if (!isInteger(n_r)     || length(n_r)     != 1) error("n must be a single integer value");
     if (!isInteger(n_rand_r)|| length(n_rand_r)!= 1) error("n_rand must be a single integer value");
@@ -1238,6 +1296,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"ridge_cuda_dense_r",            (DL_FUNC) &ridge_cuda_dense_r,            6},
     {"ridge_cuda_dense_with_perm_r",  (DL_FUNC) &ridge_cuda_dense_with_perm_r,  7},
     {"build_srand_perm_table_r",      (DL_FUNC) &build_srand_perm_table_r,      3},
+    {"col_zscore_inplace_r",          (DL_FUNC) &col_zscore_inplace_r,          1},
     {"ridge_cuda_sparse_r",           (DL_FUNC) &ridge_cuda_sparse_r,           6},
     {"ridge_cuda_sparse_with_perm_r", (DL_FUNC) &ridge_cuda_sparse_with_perm_r, 7},
     {"ridge_cuda_sparse_with_perm_norm_r", (DL_FUNC) &ridge_cuda_sparse_with_perm_norm_r, 9},

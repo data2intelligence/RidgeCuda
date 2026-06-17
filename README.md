@@ -1,5 +1,10 @@
 # RidgeCuda
 
+> **⚠️ Deprecated — use [FlashReg](https://github.com/data2intelligence/FlashReg) instead.**
+> RidgeCuda's CUDA kernel and MT19937 seam now ship inside FlashReg
+> alongside the C+OpenMP CPU backend. See [`DEPRECATED.md`](DEPRECATED.md)
+> for the one-line migration. This repository is read-only.
+
 GPU-accelerated ridge regression with permutation-based significance
 testing, powered by NVIDIA CUDA. Exports `ridge()` for one-shot
 inference and `ridge_batch()` for memory-efficient column-batched

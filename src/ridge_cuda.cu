@@ -1137,7 +1137,7 @@ int ridge_cuda_dense(
             int stats_num_blocks = ((size_t)p * cols_in_batch + compute_block_size - 1) / compute_block_size;
             updatePermutationStats<<<stats_num_blocks, compute_block_size, 0, stream>>>(
                 d_beta_perm, d_abs_beta_obs, d_sum_b, d_sum_b2, d_count_ge, 
-                (size_t)p * cols_in_batch, EPS);
+                (size_t)p * cols_in_batch, 0.0);  // strict |b_perm|>=|b_obs|, matches numpy/omp/FlashReg (eps>0 inflates p->1 for beta_obs~0)
             CHECK_CUDA(cudaGetLastError());
         }
         
@@ -1634,7 +1634,7 @@ int ridge_cuda_sparse(
             int stats_num_blocks = ((size_t)p * cols_in_batch + compute_block_size - 1) / compute_block_size;
             updatePermutationStats<<<stats_num_blocks, compute_block_size, 0, stream>>>(
                 d_beta_perm, d_abs_beta_obs, d_sum_b, d_sum_b2, d_count_ge, 
-                (size_t)p * cols_in_batch, EPS);
+                (size_t)p * cols_in_batch, 0.0);  // strict |b_perm|>=|b_obs|, matches numpy/omp/FlashReg (eps>0 inflates p->1 for beta_obs~0)
             CHECK_CUDA(cudaGetLastError());
         }
         

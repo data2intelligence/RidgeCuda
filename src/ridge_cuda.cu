@@ -1188,21 +1188,13 @@ int ridge_cuda_dense(
         }
         se[idx] = sqrt(var_perm);
 
-        // Calculate Z-score
+        // Z-score with the fixed-EPS guard shared by every CPU/cupy path
+        // (numpy ridge.py:701, omp ridge_omp.c:124): never ±Inf, same
+        // 1e-12 threshold, so cuda_native stays bit-consistent with them.
+        //     zscore = (se > EPS) ? (beta - mean) / se : 0.0
         double se_val = se[idx];
         double beta_obs = beta[idx];
-        // Use relative tolerance for division by zero check
-        double rel_eps = fmax(EPS, fabs(beta_obs - mean_perm) * EPS * 10.0);
-        if (se_val > rel_eps) {
-            zscore[idx] = (beta_obs - mean_perm) / se_val;
-        } else {
-             // If SE is near zero, check if mean is also near zero
-             if (fabs(beta_obs - mean_perm) < rel_eps) {
-                 zscore[idx] = 0.0; // Beta is effectively same as permuted mean
-             } else {
-                 zscore[idx] = (beta_obs > mean_perm) ? INFINITY : -INFINITY; // Beta differs significantly from mean, SE is zero -> infinite Z
-             }
-        }
+        zscore[idx] = (se_val > EPS) ? (beta_obs - mean_perm) / se_val : 0.0;
 
         // Calculate P-value: (count(|beta_perm| >= |beta_obs|) + 1) / (n_rand + 1)
         double p_raw = (h_count_ge[idx] + 1.0) / n_rand_plus_1;
@@ -1696,15 +1688,11 @@ int ridge_cuda_sparse(
          }
         se[idx] = sqrt(var_perm);
 
+        // Z-score: fixed-EPS guard shared with the CPU/cupy paths
+        // (numpy/omp); never ±Inf.  zscore = (se > EPS) ? (b-mean)/se : 0.0
         double se_val = se[idx];
         double beta_obs = beta[idx];
-        double rel_eps = fmax(EPS, fabs(beta_obs - mean_perm) * EPS * 10.0);
-        if (se_val > rel_eps) {
-            zscore[idx] = (beta_obs - mean_perm) / se_val;
-        } else {
-             if (fabs(beta_obs - mean_perm) < rel_eps) { zscore[idx] = 0.0; }
-             else { zscore[idx] = (beta_obs > mean_perm) ? INFINITY : -INFINITY; }
-        }
+        zscore[idx] = (se_val > EPS) ? (beta_obs - mean_perm) / se_val : 0.0;
         double p_raw = (h_count_ge[idx] + 1.0) / n_rand_plus_1;
         pvalue[idx] = fmin(1.0, fmax(0.0, p_raw));
     }
